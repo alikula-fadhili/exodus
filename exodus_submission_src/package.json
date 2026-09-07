@@ -1,0 +1,15 @@
+{
+  "name": "exodus",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Graph-guided, agent-assisted legacy code migration engine",
+  "type": "module",
+  "scripts": {
+    "wiki:init": "openwiki --init",
+    "wiki:update": "openwiki --update",
+    "wiki:visualize": "openwiki visualize"
+  },
+  "devDependencies": {
+    "openwiki": "0.4.3"
+  }
+}

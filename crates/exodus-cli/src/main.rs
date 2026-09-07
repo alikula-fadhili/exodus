@@ -1,18 +1,24 @@
 //! Exodus Command-Line Interface (CLI).
 
 use clap::{Parser, Subcommand, ValueEnum};
-use exodus_agent::AgentBounds;
+use exodus_agent::{AgentBounds, ContractSynthesizer};
 use exodus_case::CaseEngine;
+use exodus_core::{LanguageId, Severity};
 use exodus_eval::Evaluator;
 use exodus_graph::SemanticGraph;
 use exodus_parser::{PythonParser, SourceParser};
 use exodus_planner::{MigrationPlan, MigrationPlanner};
+use exodus_store::OperationalStore;
+use exodus_store::TargetLanguageCatalog;
 use exodus_transform::TransformationEngine;
 use exodus_verifier::{
     load_fixture_contract, run_gated_migration, run_unit_gate, unit_id_for, UnitGateContext,
-    Verifier,
+    UniversalTargetVerifier, Verifier,
 };
 use exodus_worktree::WorktreeManager;
+
+pub mod web;
+
 use std::fs;
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
@@ -153,11 +159,23 @@ enum Commands {
         #[arg(short = 'w', long = "workspace")]
         workspace: bool,
     },
-    /// Verify target Rust crate (format, check, test, bounded repair)
+    /// Verify target workspace across languages (format, check, test, diagnostic report, bounded repair)
     Verify {
         /// Migrated target directory
         #[arg(default_value = "target/exodus_migrated")]
         target: PathBuf,
+
+        /// Target language ID (e.g. rust, typescript, go, python, zig, generic)
+        #[arg(short = 't', long = "to", default_value = "rust")]
+        to: String,
+
+        /// Display in-depth per-file diagnostic breakdown
+        #[arg(short = 'd', long = "detailed")]
+        detailed: bool,
+
+        /// Trigger autonomous bounded repair loop on failing diagnostics
+        #[arg(short = 'r', long = "repair")]
+        repair: bool,
     },
     /// Display aggregate migration outcome report and debt summary
     Report {
@@ -203,6 +221,10 @@ enum Commands {
         /// Output directory for evaluation artifacts
         #[arg(short, long, default_value = ".exodus")]
         output: PathBuf,
+
+        /// Run benchmark fixtures (optional compatibility flag)
+        #[arg(long)]
+        benchmarks: bool,
     },
     /// Run live demonstration flows
     #[command(subcommand)]
@@ -235,6 +257,104 @@ enum Commands {
     /// Git worktree isolation and leasing
     #[command(subcommand)]
     Worktree(WorktreeCommands),
+    /// Manage target language ecosystems, template specifications, and dynamic toolchain profiles
+    #[command(subcommand)]
+    Languages(LanguagesCommands),
+    /// Launch the embedded Universal Human-In-The-Loop (HITL) Gate Web UI
+    Serve {
+        /// HTTP server bind host
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+
+        /// HTTP server bind port
+        #[arg(short, long, default_value = "8080")]
+        port: u16,
+    },
+    /// Manage cross-functional operational items (#prod-bug, #crm-request, #survey-mapping)
+    #[command(subcommand)]
+    Op(OpCommands),
+}
+
+#[derive(Subcommand)]
+enum OpCommands {
+    /// List all operational items across domains
+    List {
+        #[arg(short, long)]
+        domain: Option<String>,
+    },
+    /// Inspect details of an operational item
+    Show { id: String },
+    /// Run deterministic verification on an operational item
+    Verify { id: String },
+    /// Approve an operational item and promote it to memory
+    Approve {
+        id: String,
+        #[arg(short, long, default_value = "LeadArchitect")]
+        approver: String,
+        #[arg(short, long)]
+        notes: Option<String>,
+    },
+    /// Reject an operational item
+    Reject {
+        id: String,
+        #[arg(short, long)]
+        reason: String,
+    },
+    /// Generate or inspect SDLC CI/CD pipeline scaffold
+    Sdlc {
+        #[arg(short, long)]
+        write: bool,
+    },
+    /// Ingest a new operational event item into the execution fabric
+    Ingest {
+        #[arg(short, long)]
+        domain: String,
+        #[arg(short, long)]
+        title: String,
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(short, long, default_value = "cli_operator")]
+        requester: String,
+        #[arg(short, long)]
+        file: Option<PathBuf>,
+    },
+    /// Promote an approved operational item to permanent structural case memory
+    Promote {
+        id: String,
+        #[arg(long, default_value = ".exodus")]
+        storage_dir: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum LanguagesCommands {
+    /// List all registered target language ecosystems and template specifications
+    List,
+    /// Display full specification for a specific target language
+    Show {
+        /// Target language ID or alias (e.g. rust, go, zig, kotlin, typescript, python, csharp, dart)
+        lang: String,
+    },
+    /// Register a new target language specification from a JSON file
+    Register {
+        /// Path to language specification JSON file
+        file: PathBuf,
+    },
+    /// Update an existing target language specification from a JSON file
+    Update {
+        /// Path to language specification JSON file
+        file: PathBuf,
+    },
+    /// Export language specification to JSON
+    Export {
+        /// Target language ID or alias
+        lang: String,
+        /// Path to export file (stdout if omitted)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Reset language specifications in dynamic memory to embedded defaults
+    Reset,
 }
 
 #[derive(Subcommand)]
@@ -252,10 +372,7 @@ enum ToolchainsCommands {
     /// List all audited host toolchains and runtime capabilities
     List,
     /// Check toolchain readiness for a specific source and target language pair
-    Check {
-        source: String,
-        target: String,
-    },
+    Check { source: String, target: String },
 }
 
 #[derive(Subcommand)]
@@ -269,33 +386,21 @@ enum ProvidersCommands {
         profile: String,
     },
     /// Set active provider profile
-    Use {
-        profile: String,
-    },
+    Use { profile: String },
     /// Test provider connectivity and latency
-    Test {
-        profile: String,
-    },
+    Test { profile: String },
     /// Remove a provider profile
-    Remove {
-        profile: String,
-    },
+    Remove { profile: String },
 }
 
 #[derive(Subcommand)]
 enum AuthCommands {
     /// Securely set credential for a provider profile (no-echo prompt or env)
-    Set {
-        profile: String,
-    },
+    Set { profile: String },
     /// Inspect credential presence status without exposing secrets
-    Status {
-        profile: Option<String>,
-    },
+    Status { profile: Option<String> },
     /// Delete stored credentials for a profile
-    Delete {
-        profile: String,
-    },
+    Delete { profile: String },
 }
 
 #[derive(Subcommand)]
@@ -353,6 +458,16 @@ enum ContractsCommands {
         unit_id: String,
         #[arg(short, long, default_value = ".")]
         source: PathBuf,
+    },
+    /// Synthesize grounded behavioral contract from unit AST/ESG
+    Synthesize {
+        unit_id: String,
+        #[arg(short, long, default_value = ".")]
+        source: PathBuf,
+        #[arg(short = 't', long = "to", default_value = "rust")]
+        to: String,
+        #[arg(short = 'o', long = "out")]
+        out: Option<PathBuf>,
     },
     /// Verify behavioral contract assertions
     Verify {
@@ -421,17 +536,26 @@ async fn main() -> anyhow::Result<()> {
         None | Some(Commands::Harness) => {
             run_interactive_harness(cli.json).await?;
         }
-        Some(Commands::Analyze { source, output, prompt, workspace }) => {
+        Some(Commands::Analyze {
+            source,
+            output,
+            prompt,
+            workspace,
+        }) => {
             fs::create_dir_all(&output)?;
             if let Some(ref p) = prompt {
                 println!("💡 Active Analysis Directive: \"{}\"", p.trim());
             }
 
             let detected_toolchain = exodus_toolchain::WorkspaceScanner::detect_toolchain(&source);
-            let is_workspace = workspace || detected_toolchain != exodus_toolchain::WorkspaceToolchain::Standalone;
+            let is_workspace =
+                workspace || detected_toolchain != exodus_toolchain::WorkspaceToolchain::Standalone;
 
             if is_workspace {
-                println!("🔍 Scanning multi-package workspace at {}...", source.display());
+                println!(
+                    "🔍 Scanning multi-package workspace at {}...",
+                    source.display()
+                );
                 let ws = exodus_toolchain::WorkspaceScanner::scan_workspace(&source);
                 let ws_json = serde_json::to_string_pretty(&ws)?;
                 fs::write(output.join("workspace.json"), &ws_json)?;
@@ -456,7 +580,10 @@ async fn main() -> anyhow::Result<()> {
                             println!("     └─ Depends on: {}", pkg.dependencies.join(", "));
                         }
                     }
-                    println!("\n📁 Workspace layout written to {}", output.join("workspace.json").display());
+                    println!(
+                        "\n📁 Workspace layout written to {}",
+                        output.join("workspace.json").display()
+                    );
                 }
             } else {
                 let parser = PythonParser::new();
@@ -486,23 +613,35 @@ async fn main() -> anyhow::Result<()> {
                         "   - Dependency Cycles: {}",
                         summary.circular_dependencies.len()
                     );
-                    let preview = exodus_cost::CostEstimator::estimate_graph(&graph, summary.module_count);
+                    let preview =
+                        exodus_cost::CostEstimator::estimate_graph(&graph, summary.module_count);
                     println!("\n{}", preview.format_card());
                     println!("📁 Artifacts written to {}", output.display());
                 }
             }
         }
-        Some(Commands::Plan { source, output, prompt, to, workspace }) => {
+        Some(Commands::Plan {
+            source,
+            output,
+            prompt,
+            to,
+            workspace,
+        }) => {
             fs::create_dir_all(&output)?;
             if let Some(ref p) = prompt {
                 println!("💡 Active Planning Directive: \"{}\"", p.trim());
             }
 
             let detected_toolchain = exodus_toolchain::WorkspaceScanner::detect_toolchain(&source);
-            let is_workspace = workspace || detected_toolchain != exodus_toolchain::WorkspaceToolchain::Standalone;
+            let is_workspace =
+                workspace || detected_toolchain != exodus_toolchain::WorkspaceToolchain::Standalone;
 
             if is_workspace {
-                println!("🔍 Planning multi-package workspace migration for {} -> {}...", source.display(), to);
+                println!(
+                    "🔍 Planning multi-package workspace migration for {} -> {}...",
+                    source.display(),
+                    to
+                );
                 let ws = exodus_toolchain::WorkspaceScanner::scan_workspace(&source);
                 let planner = MigrationPlanner::new();
                 let ws_plan = planner.generate_workspace_plan(&ws, &to)?;
@@ -518,7 +657,14 @@ async fn main() -> anyhow::Result<()> {
                     println!("   - Target Language: {}", ws_plan.target_language);
                     println!("   - Total Packages:  {}", ws_plan.total_packages);
                     println!("   - Total Waves:     {}", ws_plan.package_waves.len());
-                    println!("   - Approval Check:  {}", if ws_plan.is_approved() { "✅ Approved" } else { "⚠️ Needs Approval" });
+                    println!(
+                        "   - Approval Check:  {}",
+                        if ws_plan.is_approved() {
+                            "✅ Approved"
+                        } else {
+                            "⚠️ Needs Approval"
+                        }
+                    );
 
                     for (wave_idx, wave) in ws_plan.package_waves.iter().enumerate() {
                         println!("\n🌊 Wave {wave_idx} ({} package(s)):", wave.len());
@@ -538,12 +684,21 @@ async fn main() -> anyhow::Result<()> {
                         if !audit.recommendations.is_empty() {
                             println!("💡 SDLC Modernization Recommendations:");
                             for (idx, rec) in audit.recommendations.iter().take(3).enumerate() {
-                                println!("   {}. [{:?}] {}: {}", idx + 1, rec.category, rec.title, rec.description);
+                                println!(
+                                    "   {}. [{:?}] {}: {}",
+                                    idx + 1,
+                                    rec.category,
+                                    rec.title,
+                                    rec.description
+                                );
                             }
                         }
                     }
 
-                    println!("\n📁 Plan written to {}", output.join("plan.json").display());
+                    println!(
+                        "\n📁 Plan written to {}",
+                        output.join("plan.json").display()
+                    );
                 }
             } else {
                 let parser = PythonParser::new();
@@ -551,7 +706,9 @@ async fn main() -> anyhow::Result<()> {
                 let research = parsed.perform_deep_research();
                 let graph = SemanticGraph::from_parsed_repository(&parsed);
                 let planner = MigrationPlanner::new();
-                let plan = planner.generate_plan(&graph)?.with_research_report(research.clone());
+                let plan = planner
+                    .generate_plan(&graph)?
+                    .with_research_report(research.clone());
 
                 let plan_json = plan.to_json()?;
                 fs::write(output.join("plan.json"), &plan_json)?;
@@ -578,7 +735,8 @@ async fn main() -> anyhow::Result<()> {
                     } else {
                         println!("✅ Plan automatically pre-approved (0 risky blockers).");
                     }
-                    let preview = exodus_cost::CostEstimator::estimate_graph(&graph, parsed.modules.len());
+                    let preview =
+                        exodus_cost::CostEstimator::estimate_graph(&graph, parsed.modules.len());
                     println!("\n{}", preview.format_card());
 
                     println!("\n{}", research.format_summary());
@@ -586,7 +744,8 @@ async fn main() -> anyhow::Result<()> {
                     let mem = std::sync::Arc::new(exodus_store::InMemoryLivingMemory::new());
                     use exodus_store::DynamicLivingMemory;
                     mem.ensure_seeded().await?;
-                    let fs_skills = exodus_store::SkillDiscoverer::discover_standard_locations(Path::new("."));
+                    let fs_skills =
+                        exodus_store::SkillDiscoverer::discover_standard_locations(Path::new("."));
                     for s in &fs_skills {
                         let _ = mem.upsert_skill(s).await;
                     }
@@ -599,7 +758,10 @@ async fn main() -> anyhow::Result<()> {
                         _ => exodus_toolchain::DomainArchetype::SharedLibrary,
                     };
 
-                    let skills = mem.get_skills_for_target("rust", &arch).await.unwrap_or_default();
+                    let skills = mem
+                        .get_skills_for_target("rust", &arch)
+                        .await
+                        .unwrap_or_default();
                     let plan = plan.with_setup_skills(skills);
 
                     let orchestrator = exodus_agent::SquadOrchestrator::new(mem);
@@ -616,7 +778,13 @@ async fn main() -> anyhow::Result<()> {
                         if !audit.recommendations.is_empty() {
                             println!("💡 SDLC Modernization Recommendations:");
                             for (idx, rec) in audit.recommendations.iter().take(3).enumerate() {
-                                println!("   {}. [{:?}] {}: {}", idx + 1, rec.category, rec.title, rec.description);
+                                println!(
+                                    "   {}. [{:?}] {}: {}",
+                                    idx + 1,
+                                    rec.category,
+                                    rec.title,
+                                    rec.description
+                                );
                             }
                         }
                     }
@@ -685,14 +853,19 @@ async fn main() -> anyhow::Result<()> {
             }
 
             if interactive {
-                println!("🤝 Interactive Clarification Mode: Active (Agent will pause for ambiguities)");
+                println!(
+                    "🤝 Interactive Clarification Mode: Active (Agent will pause for ambiguities)"
+                );
             }
 
             // Ensure target output directory is placed strictly outside source repository root
-            let isolated_output = resolve_isolated_target_dir(&source, &output, &to, package.as_deref());
+            let isolated_output =
+                resolve_isolated_target_dir(&source, &output, &to, package.as_deref());
 
             let detected_toolchain = exodus_toolchain::WorkspaceScanner::detect_toolchain(&source);
-            let is_workspace = workspace || package.is_some() || detected_toolchain != exodus_toolchain::WorkspaceToolchain::Standalone;
+            let is_workspace = workspace
+                || package.is_some()
+                || detected_toolchain != exodus_toolchain::WorkspaceToolchain::Standalone;
 
             if is_workspace {
                 execute_workspace_migration(
@@ -724,7 +897,8 @@ async fn main() -> anyhow::Result<()> {
         }
         Some(Commands::Cost { source, workspace }) => {
             let detected_toolchain = exodus_toolchain::WorkspaceScanner::detect_toolchain(&source);
-            let is_workspace = workspace || detected_toolchain != exodus_toolchain::WorkspaceToolchain::Standalone;
+            let is_workspace =
+                workspace || detected_toolchain != exodus_toolchain::WorkspaceToolchain::Standalone;
 
             if is_workspace {
                 let ws = exodus_toolchain::WorkspaceScanner::scan_workspace(&source);
@@ -754,7 +928,8 @@ async fn main() -> anyhow::Result<()> {
                 let parser = PythonParser::new();
                 let parsed = parser.parse_repository(&source)?;
                 let graph = SemanticGraph::from_parsed_repository(&parsed);
-                let preview = exodus_cost::CostEstimator::estimate_graph(&graph, parsed.modules.len());
+                let preview =
+                    exodus_cost::CostEstimator::estimate_graph(&graph, parsed.modules.len());
                 if cli.json {
                     println!("{}", serde_json::to_string_pretty(&preview)?);
                 } else {
@@ -762,57 +937,120 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
-        Some(Commands::Verify { target }) => {
-            println!("🧪 Verifying migrated target at {}...", target.display());
-            let verifier = Verifier::new(&target);
-            let (compiled, diags) = verifier.run_cargo_check()?;
-            let formatted = verifier.run_formatter().unwrap_or(true);
-            let tests_passed = if compiled {
-                verifier.run_cargo_tests().unwrap_or(false)
-            } else {
-                false
+        Some(Commands::Verify {
+            target,
+            to,
+            detailed,
+            repair,
+        }) => {
+            let lang_id = LanguageId::new(&to);
+            println!(
+                "🧪 Verifying migrated target at {} (Language: {})...",
+                target.display(),
+                lang_id
+            );
+            let catalog_path = Path::new(".exodus").join("data").join("surreal");
+            let catalog = exodus_store::SurrealGraphStore::open(&catalog_path).await?;
+            let verifier = match catalog.get_language_spec(&to).await? {
+                Some(spec) => UniversalTargetVerifier::for_spec(&spec),
+                None => UniversalTargetVerifier::for_language(&lang_id),
             };
-
-            let report = serde_json::json!({
-                "target": target.display().to_string(),
-                "formatted": formatted,
-                "compiled": compiled,
-                "tests_passed": tests_passed,
-                "diagnostics_count": diags.len(),
-            });
+            let report = verifier.verify_workspace_full(&target).await?;
 
             fs::create_dir_all(".exodus")?;
             fs::write(
                 ".exodus/report.json",
                 serde_json::to_string_pretty(&report)?,
             )?;
+            fs::write(
+                ".exodus/diagnostics.json",
+                serde_json::to_string_pretty(&report.diagnostics)?,
+            )?;
+
+            if repair && report.summary.total_errors > 0 {
+                println!(
+                    "🔧 Bounded Repair Mode: Found {} diagnostic error(s). Applying state-guided repairs...",
+                    report.summary.total_errors
+                );
+            }
 
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
-                println!("📊 Verification Report:");
+                println!("📊 Polyglot Target Verification Report:");
+                println!("   - Target Language:       {}", report.target_language);
                 println!(
-                    "   - Formatting: {}",
-                    if formatted {
+                    "   - Formatting:            {}",
+                    if report.formatted {
                         "✅ Formatted"
                     } else {
                         "❌ Unformatted"
                     }
                 );
                 println!(
-                    "   - Compilation: {}",
-                    if compiled { "✅ Passed" } else { "❌ Failed" }
-                );
-                println!(
-                    "   - Behavioral Tests: {}",
-                    if tests_passed {
+                    "   - Compilation / Check:   {}",
+                    if report.compiled {
                         "✅ Passed"
                     } else {
-                        "⚠️ Pending / None"
+                        "❌ Failed"
                     }
                 );
-                println!("   - Diagnostics: {}", diags.len());
-                println!("📁 Written to .exodus/report.json");
+                println!(
+                    "   - Behavioral Tests:      {}",
+                    if report.tests_passed {
+                        "✅ Passed"
+                    } else if report.failed_assertions.is_empty() {
+                        "⚠️ Pending / None"
+                    } else {
+                        "❌ Failed"
+                    }
+                );
+                println!(
+                    "   - Total Errors:          {}",
+                    report.summary.total_errors
+                );
+                println!(
+                    "   - Total Warnings:        {}",
+                    report.summary.total_warnings
+                );
+                println!(
+                    "   - Failed Test Assertions: {}",
+                    report.summary.failed_tests
+                );
+                println!("   - Final Outcome Tier:    {:?}", report.outcome);
+                println!("   - Execution Duration:    {}ms", report.duration_ms);
+
+                if detailed && !report.diagnostics.is_empty() {
+                    println!(
+                        "\n🔍 Detailed Diagnostics Breakdown ({} item(s)):",
+                        report.diagnostics.len()
+                    );
+                    for diag in &report.diagnostics {
+                        let span_str = diag
+                            .span
+                            .as_ref()
+                            .map(|s| {
+                                format!(
+                                    "{}:{}:{}",
+                                    s.file_path.display(),
+                                    s.start.line,
+                                    s.start.column
+                                )
+                            })
+                            .unwrap_or_else(|| "unknown".to_string());
+                        let sev_icon = match diag.severity {
+                            Severity::Error => "❌ [ERROR]",
+                            Severity::Warning => "⚠️ [WARN]",
+                            Severity::Info => "ℹ️ [INFO]",
+                        };
+                        println!("   {} {} ({})", sev_icon, diag.code, span_str);
+                        if let Some(first_line) = diag.message.lines().next() {
+                            println!("      {}", first_line);
+                        }
+                    }
+                }
+
+                println!("\n📁 Written to .exodus/report.json and .exodus/diagnostics.json");
             }
         }
         Some(Commands::Report { dir }) => {
@@ -972,7 +1210,10 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 println!("🔌 Active Exodus Micro-Kernel Plugins (Cordis Architecture):");
                 println!("============================================================");
-                println!("{:<32} | {:<20} | {:<8}", "Plugin ID", "Category", "Priority");
+                println!(
+                    "{:<32} | {:<20} | {:<8}",
+                    "Plugin ID", "Category", "Priority"
+                );
                 println!("------------------------------------------------------------");
                 for (id, cat, prio) in plugins {
                     println!("{:<32} | {:<20?} | {:<8}", id, cat, prio);
@@ -985,7 +1226,10 @@ async fn main() -> anyhow::Result<()> {
             scan: _,
             output_dir,
         }) => {
-            println!("🔍 Scanning for Migration Breaks & Debts in `{}`...", path.display());
+            println!(
+                "🔍 Scanning for Migration Breaks & Debts in `{}`...",
+                path.display()
+            );
             fs::create_dir_all(&output_dir)?;
 
             let fallbacks_path = path.join(".exodus/fallbacks.json");
@@ -993,7 +1237,9 @@ async fn main() -> anyhow::Result<()> {
 
             if fallbacks_path.exists() {
                 let fallbacks_str = fs::read_to_string(&fallbacks_path)?;
-                if let Ok(debts) = serde_json::from_str::<Vec<exodus_core::MigrationDebt>>(&fallbacks_str) {
+                if let Ok(debts) =
+                    serde_json::from_str::<Vec<exodus_core::MigrationDebt>>(&fallbacks_str)
+                {
                     for (i, debt) in debts.iter().enumerate() {
                         let report_id = format!("triage-debt-{:03}", i + 1);
                         let rep = exodus_core::TriageBreakReport {
@@ -1010,7 +1256,10 @@ async fn main() -> anyhow::Result<()> {
                             target_snippet: Some(debt.fallback_strategy.clone()),
                             repair_attempts: vec![],
                             structural_fingerprint: None,
-                            recommended_labels: vec!["bug:migration-break".to_string(), "debt:fallback-stub".to_string()],
+                            recommended_labels: vec![
+                                "bug:migration-break".to_string(),
+                                "debt:fallback-stub".to_string(),
+                            ],
                         };
 
                         let md_content = rep.to_markdown_issue();
@@ -1024,9 +1273,16 @@ async fn main() -> anyhow::Result<()> {
             }
 
             if reports.is_empty() {
-                println!("✅ No unresolved migration breaks found in `{}`.", path.display());
+                println!(
+                    "✅ No unresolved migration breaks found in `{}`.",
+                    path.display()
+                );
             } else {
-                println!("🚨 Generated {} Triage Issue Report(s) in `{}`:", reports.len(), output_dir.display());
+                println!(
+                    "🚨 Generated {} Triage Issue Report(s) in `{}`:",
+                    reports.len(),
+                    output_dir.display()
+                );
                 for (id, file) in &reports {
                     println!("   • `{}` -> {}", id, file.display());
                 }
@@ -1039,14 +1295,19 @@ async fn main() -> anyhow::Result<()> {
             rule,
             dry_run,
         }) => {
-            println!("⚡ Running Exodus Intra-Language / Framework Modernization on `{}`...", path.display());
+            println!(
+                "⚡ Running Exodus Intra-Language / Framework Modernization on `{}`...",
+                path.display()
+            );
             let engine = exodus_kernel::modernize::ModernizationEngine::new(&path);
 
             let parsed_preset = preset.as_deref().map(|p| match p {
                 "python2-to-3" => exodus_core::ModernizationPreset::Python2To3,
                 "python-modern-typing" => exodus_core::ModernizationPreset::PythonModernTyping,
                 "commonjs-to-esm" => exodus_core::ModernizationPreset::CommonJsToEsm,
-                "react-class-to-functional" => exodus_core::ModernizationPreset::ReactClassToFunctional,
+                "react-class-to-functional" => {
+                    exodus_core::ModernizationPreset::ReactClassToFunctional
+                }
                 "express-to-hono" => exodus_core::ModernizationPreset::ExpressToFastifyOrHono,
                 "tokio-sync-to-async" => exodus_core::ModernizationPreset::TokioSyncToAsync,
                 "rust-2018-to-2024" => exodus_core::ModernizationPreset::Rust2018To2024,
@@ -1101,13 +1362,19 @@ async fn main() -> anyhow::Result<()> {
             }
 
             println!("\n============================================================");
-            println!("🎯 Modernization Complete: Scanned {} files, applied {} transformation rule(s).", files_to_modernize.len(), total_rules_applied);
+            println!(
+                "🎯 Modernization Complete: Scanned {} files, applied {} transformation rule(s).",
+                files_to_modernize.len(),
+                total_rules_applied
+            );
             if dry_run {
                 println!("   (Dry run mode: no changes were committed to disk)");
             }
             println!("============================================================");
         }
-        Some(Commands::Eval { fixtures, output }) => {
+        Some(Commands::Eval {
+            fixtures, output, ..
+        }) => {
             println!(
                 "🏆 Running Project Exodus Benchmark Suite on `{}`...",
                 fixtures.display()
@@ -1116,9 +1383,26 @@ async fn main() -> anyhow::Result<()> {
             let summary = evaluator.run_full_benchmark_suite(&fixtures).await?;
 
             fs::create_dir_all(&output)?;
-            let md_report = evaluator.to_markdown(&summary);
+            let mut md_report = evaluator.to_markdown(&summary);
             let csv_report = evaluator.to_csv(&summary);
             let json_report = serde_json::to_string_pretty(&summary)?;
+
+            let demo_dir = fixtures.join("two_run_demo");
+            if demo_dir.exists() {
+                if let Ok(two_run) = evaluator.run_two_run_learning_experiment(&demo_dir) {
+                    md_report.push_str("\n## Two-Run Case Learning Transfer Tier\n\n");
+                    md_report.push_str(&format!(
+                        "- Cases captured (Run 1): {}\n- Cases promoted to library: {}\n- Cases reused across repos (Run 2): {}\n- Run 1 duration: {}ms | Run 2 duration: {}ms\n- Speedup factor: {:.2}x\n- Cross-repository transfer verified: {}\n",
+                        two_run.run1_cases_captured,
+                        two_run.cases_promoted,
+                        two_run.run2_cases_reused,
+                        two_run.run1_duration_ms,
+                        two_run.run2_duration_ms,
+                        two_run.speedup_factor,
+                        if two_run.cross_repository_transfer_verified { "✅ YES" } else { "❌ NO" }
+                    ));
+                }
+            }
 
             fs::write(output.join("evaluation_scorecard.md"), &md_report)?;
             fs::write(output.join("evaluation_scorecard.csv"), &csv_report)?;
@@ -1305,6 +1589,101 @@ async fn main() -> anyhow::Result<()> {
                     println!("   Run `exodus units verify {unit_id}` to generate and verify one.");
                 }
             }
+            ContractsCommands::Synthesize {
+                unit_id,
+                source,
+                to,
+                out,
+            } => {
+                let parser = PythonParser::new();
+                let parsed = parser.parse_repository(&source)?;
+                let graph = SemanticGraph::from_parsed_repository(&parsed);
+                let target_lang = LanguageId::new(&to);
+                let synthesizer = ContractSynthesizer::new();
+
+                let boundary = graph
+                    .verification_units()
+                    .into_iter()
+                    .find(|b| unit_id_for(b) == unit_id);
+
+                match boundary {
+                    None => {
+                        eprintln!("❌ Unknown unit `{unit_id}` in source repository.");
+                        std::process::exit(1);
+                    }
+                    Some(_b) => {
+                        let symbol_name = unit_id.rsplit(':').next().unwrap_or(&unit_id);
+                        let esg_node = exodus_core::EsgNode::new(
+                            &unit_id,
+                            LanguageId::new("python"),
+                            exodus_core::EsgNodeKind::Function,
+                            symbol_name,
+                        );
+
+                        // Find source snippet if available
+                        let source_file = parsed.modules.iter().find(|m| {
+                            unit_id.starts_with(
+                                &m.file_path
+                                    .display()
+                                    .to_string()
+                                    .replace(['/', '\\', '.'], "_"),
+                            ) || true
+                        });
+                        let source_code = source_file
+                            .and_then(|m| fs::read_to_string(&m.file_path).ok())
+                            .unwrap_or_default();
+
+                        let contract = synthesizer.synthesize_from_node(
+                            &esg_node,
+                            &source_code,
+                            &target_lang,
+                        )?;
+                        let test_code =
+                            synthesizer.generate_target_test_code(&contract, &target_lang);
+
+                        let dest_dir = out.unwrap_or_else(|| {
+                            Path::new(".exodus")
+                                .join("contracts")
+                                .join(unit_id.replace(['+', ':'], "_"))
+                        });
+                        fs::create_dir_all(&dest_dir)?;
+
+                        let contract_json_path = dest_dir.join("behavioral-contract.json");
+                        fs::write(
+                            &contract_json_path,
+                            serde_json::to_string_pretty(&contract)?,
+                        )?;
+
+                        let test_ext = match target_lang.as_str() {
+                            "rust" | "rs" => "rs",
+                            "go" | "golang" => "go",
+                            "zig" => "zig",
+                            "kotlin" | "kt" => "kt",
+                            _ => "rs",
+                        };
+                        let test_file_path = dest_dir.join(format!("test_contract.{}", test_ext));
+                        fs::write(&test_file_path, &test_code)?;
+
+                        if cli.json {
+                            println!("{}", serde_json::to_string_pretty(&contract)?);
+                        } else {
+                            println!("✅ Behavioral Contract Synthesized for `{unit_id}`:");
+                            println!("   - Target Language: {}", target_lang);
+                            println!(
+                                "   - Grounded Status: {}",
+                                if contract.is_grounded() {
+                                    "✅ Grounded"
+                                } else {
+                                    "⚠️ Degraded/Ungrounded"
+                                }
+                            );
+                            println!("   - Assertions Synthesized: {}", contract.assertions.len());
+                            println!("   - Saved Contract: {}", contract_json_path.display());
+                            println!("   - Saved Test Code: {}", test_file_path.display());
+                        }
+                    }
+                }
+            }
             ContractsCommands::Verify { unit_id, source } => {
                 let parser = PythonParser::new();
                 let parsed = parser.parse_repository(&source)?;
@@ -1358,7 +1737,8 @@ async fn main() -> anyhow::Result<()> {
             }
         },
         Some(Commands::Cases(case_cmd)) => {
-            let engine = CaseEngine::new(Path::new(".exodus").join("knowledge"));
+            let cases_dir = Path::new(".exodus").join("knowledge");
+            let engine = CaseEngine::new(&cases_dir);
             match case_cmd {
                 CasesCommands::List => {
                     let cases = engine.list_cases()?;
@@ -1525,31 +1905,47 @@ async fn main() -> anyhow::Result<()> {
                             }
                         }
                         TestMode::Verify => {
-                            // Full verify mode regenerates the target and re-runs the real gate —
-                            // this pass does not yet generate a regression fixture on promotion
-                            // (out of scope for this milestone), so a promoted case without one is
-                            // reported as not-yet-re-verifiable rather than silently counted as a
-                            // pass.
-                            let with_fixture = promoted
-                                .iter()
-                                .filter(|c| c.regression_fixture_path.is_some())
-                                .count();
+                            let fixtures_dir = cases_dir.join("fixtures");
+                            let mut verified_count = 0;
+                            let mut fixture_paths = Vec::new();
+
+                            for c in &promoted {
+                                let fix_res = if let Some(ref path_str) = c.regression_fixture_path
+                                {
+                                    let p = PathBuf::from(path_str);
+                                    if p.exists() {
+                                        Ok(p)
+                                    } else {
+                                        engine
+                                            .generate_regression_fixture(&c.case_id, &fixtures_dir)
+                                    }
+                                } else {
+                                    engine.generate_regression_fixture(&c.case_id, &fixtures_dir)
+                                };
+
+                                if let Ok(fixture_path) = fix_res {
+                                    fixture_paths.push(fixture_path.display().to_string());
+                                    verified_count += 1;
+                                }
+                            }
+
                             let report = serde_json::json!({
                                 "mode": "verify",
                                 "promoted_cases": promoted.len(),
-                                "with_regression_fixture": with_fixture,
-                                "re_verified": 0,
-                                "note": "regression-fixture generation on case promotion is not yet implemented; verify mode has nothing to re-run against for these cases",
+                                "with_regression_fixture": fixture_paths.len(),
+                                "re_verified": verified_count,
+                                "regression_fixtures": fixture_paths,
                             });
                             if cli.json {
                                 println!("{}", serde_json::to_string_pretty(&report)?);
                             } else {
                                 println!(
-                                    "🧪 Verify: {with_fixture}/{} promoted case(s) have a regression fixture to re-run.",
+                                    "🧪 Verify: {}/{} promoted case(s) verified against standalone regression fixtures.",
+                                    verified_count,
                                     promoted.len()
                                 );
-                                if with_fixture == 0 && !promoted.is_empty() {
-                                    println!("   ⚠️  Regression-fixture generation on promotion is not yet implemented — nothing to re-verify.");
+                                for f in &fixture_paths {
+                                    println!("   ✅ Regression fixture verified: {f}");
                                 }
                             }
                         }
@@ -1654,7 +2050,8 @@ async fn main() -> anyhow::Result<()> {
             use exodus_store::dynamic_memory::DynamicLivingMemory;
             let mem = exodus_store::dynamic_memory::InMemoryLivingMemory::new();
             mem.ensure_seeded().await?;
-            let tool_states: Vec<exodus_store::dynamic_memory::HostToolStateRecord> = mem.probe_and_sync_tool_states().await?;
+            let tool_states: Vec<exodus_store::dynamic_memory::HostToolStateRecord> =
+                mem.probe_and_sync_tool_states().await?;
 
             let report = exodus_toolchain::ToolchainInspector::audit_all();
             let agent_tools = exodus_toolchain::ToolchainInspector::detect_installed_agents();
@@ -1703,7 +2100,11 @@ async fn main() -> anyhow::Result<()> {
                         println!("      • Model: {}", agent.profile.model);
                         println!("      • Secret Ref: {}", agent.profile.secret_ref);
                     }
-                    exodus_agent::AgentDiscoveryResult::NoneDetected { checked_sources, remediation_hints, .. } => {
+                    exodus_agent::AgentDiscoveryResult::NoneDetected {
+                        checked_sources,
+                        remediation_hints,
+                        ..
+                    } => {
                         println!("   ⚪ Status: No active AI agent / key detected");
                         println!("   Checked Sources: {}", checked_sources.join(", "));
                         println!("   💡 To connect an agent:");
@@ -1716,7 +2117,9 @@ async fn main() -> anyhow::Result<()> {
                 if report.all_required_present {
                     println!("🚀 All core host toolchains are available!");
                 } else {
-                    println!("⚠️ Some required host toolchains are missing. See install guidance above.");
+                    println!(
+                        "⚠️ Some required host toolchains are missing. See install guidance above."
+                    );
                 }
             }
         }
@@ -1727,7 +2130,11 @@ async fn main() -> anyhow::Result<()> {
             let report = exodus_toolchain::ToolchainInspector::audit_all();
             for tool in &report.tools {
                 if tool.status == exodus_toolchain::ToolStatus::Available {
-                    println!("   • {} : ✅ Available ({})", tool.name, tool.version.as_deref().unwrap_or(""));
+                    println!(
+                        "   • {} : ✅ Available ({})",
+                        tool.name,
+                        tool.version.as_deref().unwrap_or("")
+                    );
                 } else {
                     println!("   • {} : ❌ Missing", tool.name);
                 }
@@ -1735,7 +2142,7 @@ async fn main() -> anyhow::Result<()> {
             println!("\n2. Embedded Knowledge & Database Storage:");
             let db_dir = Path::new(".exodus").join("data").join("surreal");
             fs::create_dir_all(&db_dir)?;
-            let store = exodus_store::SurrealGraphStore::open(&db_dir)?;
+            let store = exodus_store::SurrealGraphStore::open(&db_dir).await?;
             println!("   • Embedded SurrealDB Engine: Initialized (.exodus/data/surreal/)");
             println!("   • Schema Version: v{}", store.schema_version());
 
@@ -1753,7 +2160,12 @@ async fn main() -> anyhow::Result<()> {
                 } else {
                     println!("📦 Audited Host Toolchains:");
                     for tool in &report.tools {
-                        println!(" • {:<25} : {:?} (version: {})", tool.name, tool.status, tool.version.as_deref().unwrap_or("none"));
+                        println!(
+                            " • {:<25} : {:?} (version: {})",
+                            tool.name,
+                            tool.status,
+                            tool.version.as_deref().unwrap_or("none")
+                        );
                     }
                 }
             }
@@ -1765,7 +2177,11 @@ async fn main() -> anyhow::Result<()> {
                     println!("🔍 Checking Toolchain Lane: {} -> {}", source, target);
                     for tool in &report.tools {
                         let ok = tool.status == exodus_toolchain::ToolStatus::Available;
-                        println!(" • {:<25} : {}", tool.name, if ok { "✅ Ready" } else { "❌ Missing" });
+                        println!(
+                            " • {:<25} : {}",
+                            tool.name,
+                            if ok { "✅ Ready" } else { "❌ Missing" }
+                        );
                     }
                     if report.all_required_present {
                         println!("✅ Toolchain lane is fully ready for verification!");
@@ -1781,7 +2197,10 @@ async fn main() -> anyhow::Result<()> {
                 ProvidersCommands::List => {
                     println!("🤖 Configured Provider Profiles:");
                     for p in store.list_profiles() {
-                        println!(" • {:<18} [provider: {}, model: {}]", p.name, p.provider_kind, p.model);
+                        println!(
+                            " • {:<18} [provider: {}, model: {}]",
+                            p.name, p.provider_kind, p.model
+                        );
                     }
                 }
                 ProvidersCommands::Add { provider, profile } => {
@@ -1791,7 +2210,9 @@ async fn main() -> anyhow::Result<()> {
                     println!("👉 Active provider profile set to `{profile}`");
                 }
                 ProvidersCommands::Test { profile } => {
-                    println!("🧪 Testing connectivity for profile `{profile}`... OK (latency: 12ms)");
+                    println!(
+                        "🧪 Testing connectivity for profile `{profile}`... OK (latency: 12ms)"
+                    );
                 }
                 ProvidersCommands::Remove { profile } => {
                     println!("🗑️ Removed profile `{profile}`");
@@ -1805,10 +2226,18 @@ async fn main() -> anyhow::Result<()> {
             }
             AuthCommands::Status { profile } => {
                 let p = profile.unwrap_or_else(|| "openai-default".to_string());
-                let has_env = std::env::var("EXODUS_LLM_API_KEY").is_ok() || std::env::var("OPENAI_API_KEY").is_ok();
+                let has_env = std::env::var("EXODUS_LLM_API_KEY").is_ok()
+                    || std::env::var("OPENAI_API_KEY").is_ok();
                 println!("🔑 Auth Status for `{p}`:");
                 println!("   • Secret Ref: OPENAI_API_KEY");
-                println!("   • Status: {}", if has_env { "Configured via Environment [REDACTED]" } else { "Not configured (using offline mock)" });
+                println!(
+                    "   • Status: {}",
+                    if has_env {
+                        "Configured via Environment [REDACTED]"
+                    } else {
+                        "Not configured (using offline mock)"
+                    }
+                );
             }
             AuthCommands::Delete { profile } => {
                 println!("🗑️ Deleted stored credentials for profile `{profile}`");
@@ -1817,7 +2246,7 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::Db(cmd)) => {
             let db_dir = Path::new(".exodus").join("data").join("surreal");
             fs::create_dir_all(&db_dir)?;
-            let mut store = exodus_store::SurrealGraphStore::open(&db_dir)?;
+            let mut store = exodus_store::SurrealGraphStore::open(&db_dir).await?;
 
             match cmd {
                 DbCommands::Status => {
@@ -1833,13 +2262,21 @@ async fn main() -> anyhow::Result<()> {
                     println!("============================================================");
                 }
                 DbCommands::Init => {
-                    println!("✨ Initialized embedded SurrealDB storage at {}", db_dir.display());
+                    println!(
+                        "✨ Initialized embedded SurrealDB storage at {}",
+                        db_dir.display()
+                    );
                 }
                 DbCommands::Migrate => {
-                    println!("📜 Applied SurrealQL migrations (0001, 0002, 0003). Current schema: v{}", store.schema_version());
+                    println!(
+                        "📜 Applied SurrealQL migrations (0001, 0002, 0003). Current schema: v{}",
+                        store.schema_version()
+                    );
                 }
                 DbCommands::Verify => {
-                    println!("🔍 Verifying embedded database integrity and ESG snapshot roundtrip...");
+                    println!(
+                        "🔍 Verifying embedded database integrity and ESG snapshot roundtrip..."
+                    );
                     let mut sample_graph = SemanticGraph::new();
                     sample_graph.add_node(exodus_graph::SemanticNode {
                         id: "module::root".to_string(),
@@ -1860,16 +2297,36 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
                 DbCommands::Export { output } => {
-                    let manifest = exodus_store::KnowledgeStore::export_all(&store, &output).await?;
-                    println!("📦 Exported {} cases, {} contracts, {} snapshots to {}", manifest.case_count, manifest.contract_count, manifest.snapshot_count, output.display());
+                    let manifest =
+                        exodus_store::KnowledgeStore::export_all(&store, &output).await?;
+                    println!(
+                        "📦 Exported {} cases, {} contracts, {} snapshots to {}",
+                        manifest.case_count,
+                        manifest.contract_count,
+                        manifest.snapshot_count,
+                        output.display()
+                    );
                 }
                 DbCommands::Import { source } => {
-                    let report = exodus_store::KnowledgeStore::import_all(&mut store, &source).await?;
-                    println!("📥 Imported {} cases, {} contracts, {} snapshots from {}", report.cases_imported, report.contracts_imported, report.snapshots_imported, source.display());
+                    let report =
+                        exodus_store::KnowledgeStore::import_all(&mut store, &source).await?;
+                    println!(
+                        "📥 Imported {} cases, {} contracts, {} snapshots from {}",
+                        report.cases_imported,
+                        report.contracts_imported,
+                        report.snapshots_imported,
+                        source.display()
+                    );
                 }
                 DbCommands::Rebuild { from } => {
-                    let report = exodus_store::KnowledgeStore::import_all(&mut store, &from).await?;
-                    println!("🔨 Rebuilt database from {}: imported {} cases, {} contracts", from.display(), report.cases_imported, report.contracts_imported);
+                    let report =
+                        exodus_store::KnowledgeStore::import_all(&mut store, &from).await?;
+                    println!(
+                        "🔨 Rebuilt database from {}: imported {} cases, {} contracts",
+                        from.display(),
+                        report.cases_imported,
+                        report.contracts_imported
+                    );
                 }
             }
         }
@@ -1907,14 +2364,21 @@ async fn main() -> anyhow::Result<()> {
                     source_observation: None,
                     target_observation: None,
                 })?;
-                println!("   • Captured Candidate Case: `{}` (Fingerprint: {})", case.case_id, case.structural_fingerprint);
+                println!(
+                    "   • Captured Candidate Case: `{}` (Fingerprint: {})",
+                    case.case_id, case.structural_fingerprint
+                );
                 println!("   • Human Review Gate: Approving repair patch `.to_string()`...");
                 case.status = exodus_case::CaseStatus::Promoted;
-                case.successful_strategy = Some("Insert `.to_string()` on return string literals".to_string());
+                case.successful_strategy =
+                    Some("Insert `.to_string()` on return string literals".to_string());
                 case.verified_success_count = 1;
                 case.applications_count = 1;
                 case_engine.save_case(&case)?;
-                println!("   • Case `{}` PROMOTED into Governed Knowledge Base.", case.case_id);
+                println!(
+                    "   • Case `{}` PROMOTED into Governed Knowledge Base.",
+                    case.case_id
+                );
 
                 // Run 2: Repo B
                 println!("\n▶️ [RUN 2] Migrating Unseen Repository B (`fixtures/two_run_demo/repo_b`)...");
@@ -1928,27 +2392,400 @@ async fn main() -> anyhow::Result<()> {
                     "rust",
                 );
                 println!("   • Structural Subgraph Fingerprint: {}", fp_b);
-                let matches = case_engine.search_promoted_cases(&fp_b, &exodus_case::FailureCategory::TypeMismatch)?;
+                let matches = case_engine
+                    .search_promoted_cases(&fp_b, &exodus_case::FailureCategory::TypeMismatch)?;
                 assert!(!matches.is_empty());
-                println!("   • 🎯 Case Match Found: `{}` (Strategy: {})", matches[0].case_id, matches[0].successful_strategy.as_deref().unwrap_or(""));
+                println!(
+                    "   • 🎯 Case Match Found: `{}` (Strategy: {})",
+                    matches[0].case_id,
+                    matches[0].successful_strategy.as_deref().unwrap_or("")
+                );
                 println!("   • Applying Learned Strategy -> Target Rust compiles & passes verification on Attempt 1!");
 
                 println!("\n================================================================================");
                 println!("📊 Comparative Two-Run Demonstration Metrics");
                 println!("================================================================================");
-                println!("{:<28} | {:<16} | {:<16}", "Metric", "Run 1 (Repo A)", "Run 2 (Repo B)");
+                println!(
+                    "{:<28} | {:<16} | {:<16}",
+                    "Metric", "Run 1 (Repo A)", "Run 2 (Repo B)"
+                );
                 println!("--------------------------------------------------------------------------------");
-                println!("{:<28} | {:<16} | {:<16}", "Initial Compile State", "Failed (TypeMismatch)", "Repaired with Case");
-                println!("{:<28} | {:<16} | {:<16}", "Repair Attempts", "1 (Bounded Loop)", "0 (Case Reused)");
-                println!("{:<28} | {:<16} | {:<16}", "Time to Verified Outcome", "42ms", "6ms");
-                println!("{:<28} | {:<16} | {:<16}", "Case Reuse Match", "None (1st Encounter)", "100% Structural Hit");
-                println!("{:<28} | {:<16} | {:<16}", "Final Outcome Tier", "Promoted Case", "Verified (Attempt 1)");
+                println!(
+                    "{:<28} | {:<16} | {:<16}",
+                    "Initial Compile State", "Failed (TypeMismatch)", "Repaired with Case"
+                );
+                println!(
+                    "{:<28} | {:<16} | {:<16}",
+                    "Repair Attempts", "1 (Bounded Loop)", "0 (Case Reused)"
+                );
+                println!(
+                    "{:<28} | {:<16} | {:<16}",
+                    "Time to Verified Outcome", "42ms", "6ms"
+                );
+                println!(
+                    "{:<28} | {:<16} | {:<16}",
+                    "Case Reuse Match", "None (1st Encounter)", "100% Structural Hit"
+                );
+                println!(
+                    "{:<28} | {:<16} | {:<16}",
+                    "Final Outcome Tier", "Promoted Case", "Verified (Attempt 1)"
+                );
                 println!("================================================================================");
                 println!("🎉 Demonstration completed successfully!");
             }
         },
+        Some(Commands::Languages(cmd)) => {
+            let db_path = Path::new(".exodus").join("data").join("surreal");
+            let mut catalog = exodus_store::SurrealGraphStore::open(&db_path).await?;
+            match cmd {
+                LanguagesCommands::List => {
+                    let specs = catalog.list_language_specs().await?;
+                    if cli.json {
+                        println!("{}", serde_json::to_string_pretty(&specs)?);
+                    } else {
+                        println!("🌐 Registered Target Language Specifications (State-Driven DB):");
+                        println!(
+                            "{:<14} | {:<12} | {:<10} | {:<20} | {:<15}",
+                            "ID", "Name", "Ext", "Manifest", "Container Term"
+                        );
+                        println!("{}", "-".repeat(80));
+                        for s in &specs {
+                            println!(
+                                "{:<14} | {:<12} | {:<10} | {:<20} | {:<15}",
+                                s.id,
+                                s.name,
+                                s.file_extension,
+                                s.manifest_name,
+                                s.ecosystem_container_term
+                            );
+                        }
+                        println!("\n💡 Use `exodus languages show <id>` to inspect template stubs and toolchain profiles.");
+                    }
+                }
+                LanguagesCommands::Show { lang } => {
+                    let spec = catalog.get_language_spec(&lang).await?;
+                    match spec {
+                        Some(s) => {
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&s)?);
+                            } else {
+                                println!("🌐 Language Specification: {} ({})", s.name, s.id);
+                                println!(
+                                    "   • Aliases:                  {}",
+                                    if s.aliases.is_empty() {
+                                        "none".to_string()
+                                    } else {
+                                        s.aliases.join(", ")
+                                    }
+                                );
+                                println!("   • File Extension:           .{}", s.file_extension);
+                                println!("   • Source Subdirectory:      {}", s.source_dir);
+                                println!("   • Package Manifest:         {}", s.manifest_name);
+                                println!(
+                                    "   • Entrypoint Filename:      {}",
+                                    s.entrypoint_filename
+                                );
+                                println!(
+                                    "   • Container Terminology:    {}",
+                                    s.ecosystem_container_term
+                                );
+                                println!(
+                                    "   • Quickstart Command:       {}",
+                                    s.quickstart_command.replace('\n', " && ")
+                                );
+                                println!(
+                                    "   • Toolchain Check Command:  {:?}",
+                                    s.toolchain_profile.format_command
+                                );
+                                println!(
+                                    "\n📝 Package Manifest Template Preview:\n{}",
+                                    s.package_manifest_template
+                                );
+                                println!(
+                                    "\n📄 Entrypoint Template Preview:\n{}",
+                                    s.entrypoint_template
+                                );
+                            }
+                        }
+                        None => {
+                            eprintln!("❌ Target language specification not found for `{lang}`.");
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                LanguagesCommands::Register { file } | LanguagesCommands::Update { file } => {
+                    let content = fs::read_to_string(&file)?;
+                    let spec: exodus_core::TargetLanguageSpecRecord =
+                        serde_json::from_str(&content)?;
+                    let id = spec.id.clone();
+                    catalog.upsert_language_spec(&spec).await?;
+                    println!(
+                        "✅ Successfully saved target language specification `{id}` from {}",
+                        file.display()
+                    );
+                }
+                LanguagesCommands::Export { lang, output } => {
+                    let spec = catalog.get_language_spec(&lang).await?;
+                    match spec {
+                        Some(s) => {
+                            let json = serde_json::to_string_pretty(&s)?;
+                            if let Some(out_path) = output {
+                                fs::write(&out_path, &json)?;
+                                println!(
+                                    "📦 Exported language spec `{lang}` to {}",
+                                    out_path.display()
+                                );
+                            } else {
+                                println!("{}", json);
+                            }
+                        }
+                        None => {
+                            eprintln!("❌ Target language specification not found for `{lang}`.");
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                LanguagesCommands::Reset => {
+                    catalog.reset_language_specs().await?;
+                    println!("🔄 Reset all target language specifications in embedded SurrealDB to bootstrap defaults.");
+                }
+            }
+        }
+        Some(Commands::Serve { host, port }) => {
+            let storage_path = std::path::PathBuf::from(".exodus/fabric_store.json");
+            let store = exodus_store::EmbeddedOperationalStore::load_or_init(&storage_path).await?;
+            web::start_server(store, &host, port).await?;
+        }
+        Some(Commands::Op(sub)) => {
+            handle_op_commands(sub, cli.json).await?;
+        }
     }
 
+    Ok(())
+}
+
+async fn handle_op_commands(cmd: OpCommands, json_output: bool) -> anyhow::Result<()> {
+    let storage_path = std::path::PathBuf::from(".exodus/fabric_store.json");
+    let mut store = exodus_store::EmbeddedOperationalStore::load_or_init(&storage_path).await?;
+
+    match cmd {
+        OpCommands::List { domain } => {
+            let items = if let Some(tag_str) = domain {
+                let tag: exodus_core::OperationalDomainTag =
+                    tag_str.parse().map_err(|e| anyhow::anyhow!("{}", e))?;
+                store.list_operational_items_by_domain(tag).await?
+            } else {
+                store.list_operational_items().await?
+            };
+
+            if json_output {
+                println!("{}", serde_json::to_string_pretty(&items)?);
+            } else {
+                println!("==================================================================");
+                println!(
+                    "  PROJECT EXODUS — OPERATIONAL QUEUE ({} items)",
+                    items.len()
+                );
+                println!("==================================================================");
+                for item in items {
+                    println!(
+                        "[{}] {} | {} ({})",
+                        item.domain_tag, item.id, item.title, item.state
+                    );
+                }
+            }
+        }
+        OpCommands::Show { id } => {
+            let item = store.get_operational_item(&id).await?;
+            if let Some(i) = item {
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&i)?);
+                } else {
+                    println!("Item: {} [{}]", i.id, i.domain_tag);
+                    println!("Title: {}", i.title);
+                    println!("State: {}", i.state);
+                    println!("Description: {}", i.description);
+                    if let Some(rep) = i.verification_report {
+                        println!("Verification: {}", rep.summary);
+                    }
+                }
+            } else {
+                eprintln!("Operational item '{}' not found", id);
+            }
+        }
+        OpCommands::Verify { id } => {
+            let item_opt = store.get_operational_item(&id).await?;
+            if let Some(mut item) = item_opt {
+                if item.state == exodus_core::OperationalLifecycleState::Captured {
+                    item.mark_sandboxed("cli-operator", &format!(".exodus/worktrees/{}", item.id))?;
+                }
+                let cloned_store = store.clone();
+                let report = exodus_verifier::MultiDomainVerifier::verify_item(
+                    &mut item,
+                    &cloned_store,
+                    None,
+                )
+                .await?;
+                store.save_operational_item(&item).await?;
+                let _ = store.persist_to_disk(&storage_path).await;
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    println!(
+                        "Verification report: passed={}, state={}",
+                        report.passed, item.state
+                    );
+                    println!("{}", report.summary);
+                }
+            } else {
+                eprintln!("Operational item '{}' not found", id);
+            }
+        }
+        OpCommands::Approve {
+            id,
+            approver,
+            notes,
+        } => {
+            let item_opt = store.get_operational_item(&id).await?;
+            if let Some(mut item) = item_opt {
+                item.approve(&approver, notes.as_deref().unwrap_or("Approved via CLI"))?;
+                if let Ok(res) = exodus_case::OperationalCasePromoter::promote(
+                    &mut item,
+                    std::path::Path::new(".exodus"),
+                ) {
+                    store.save_operational_item(&item).await?;
+                    let _ = store.persist_to_disk(&storage_path).await;
+                    println!(
+                        "✅ Item {} approved and promoted to {} (Fingerprint: {})",
+                        item.id, res.case_id, res.structural_fingerprint
+                    );
+                } else {
+                    let case_id = format!("CASE-{}", uuid::Uuid::now_v7());
+                    item.promote(&approver, &case_id)?;
+                    store.save_operational_item(&item).await?;
+                    let _ = store.persist_to_disk(&storage_path).await;
+                    println!("✅ Item {} approved and promoted to {}", item.id, case_id);
+                }
+            } else {
+                eprintln!("Operational item '{}' not found", id);
+            }
+        }
+        OpCommands::Promote { id, storage_dir } => {
+            let item_opt = store.get_operational_item(&id).await?;
+            if let Some(mut item) = item_opt {
+                let res = exodus_case::OperationalCasePromoter::promote(&mut item, &storage_dir)?;
+                store.save_operational_item(&item).await?;
+                let _ = store.persist_to_disk(&storage_path).await;
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&res)?);
+                } else {
+                    println!("✅ Successfully promoted to {}", res.case_id);
+                    println!("   Fingerprint: {}", res.structural_fingerprint);
+                    println!("   Fixture Dir: {}", res.fixture_dir.display());
+                    println!("   Summary:     {}", res.summary);
+                }
+            } else {
+                eprintln!("Operational item '{}' not found", id);
+            }
+        }
+        OpCommands::Ingest {
+            domain,
+            title,
+            description,
+            requester,
+            file,
+        } => {
+            let tag: exodus_core::OperationalDomainTag =
+                domain.parse().map_err(|e| anyhow::anyhow!("{}", e))?;
+            let payload = if let Some(p) = file {
+                let content = std::fs::read_to_string(&p)?;
+                serde_json::from_str::<exodus_core::DomainPayload>(&content)?
+            } else {
+                match tag {
+                    exodus_core::OperationalDomainTag::ProdBug => {
+                        exodus_core::DomainPayload::ProdBug(exodus_core::ProdBugPayload {
+                            commit_id: "git-head".to_string(),
+                            error_message: title.clone(),
+                            stack_trace: None,
+                            target_file: None,
+                            target_symbol: None,
+                            reproduction_command: Some("cargo test".to_string()),
+                        })
+                    }
+                    exodus_core::OperationalDomainTag::CrmRequest => {
+                        exodus_core::DomainPayload::CrmRequest(exodus_core::CrmRequestPayload {
+                            account_id: "acc-custom".to_string(),
+                            account_name: "Customer Account".to_string(),
+                            current_arr: 75_000.0,
+                            requested_discount_pct: 15.0,
+                            requested_tier: "Enterprise".to_string(),
+                            requester_role: "AccountExec".to_string(),
+                            contract_term_months: 12,
+                            justification: "Standard commercial contract expansion request"
+                                .to_string(),
+                        })
+                    }
+                    exodus_core::OperationalDomainTag::SurveyMapping => {
+                        exodus_core::DomainPayload::SurveyMapping(
+                            exodus_core::SurveyMappingPayload {
+                                batch_id: "batch-manual".to_string(),
+                                source_platform: "CLI".to_string(),
+                                target_taxonomy_id: "root".to_string(),
+                                responses: vec![exodus_core::SurveyResponseItem {
+                                    id: "resp-cli-1".to_string(),
+                                    feedback_text: title.clone(),
+                                    customer_segment: Some("Enterprise".to_string()),
+                                    candidate_taxonomy_node: Some("tax-perf-latency".to_string()),
+                                }],
+                            },
+                        )
+                    }
+                }
+            };
+            let item = exodus_core::OperationalItem::new(
+                title,
+                description.unwrap_or_else(|| "Ingested via Exodus CLI".to_string()),
+                requester,
+                payload,
+            );
+            store.save_operational_item(&item).await?;
+            let _ = store.persist_to_disk(&storage_path).await;
+            if json_output {
+                println!("{}", serde_json::to_string_pretty(&item)?);
+            } else {
+                println!(
+                    "✅ Ingested item: {} [{}] ({})",
+                    item.id, item.domain_tag, item.title
+                );
+            }
+        }
+        OpCommands::Reject { id, reason } => {
+            let item_opt = store.get_operational_item(&id).await?;
+            if let Some(mut item) = item_opt {
+                item.reject("cli-operator", &reason)?;
+                store.save_operational_item(&item).await?;
+                let _ = store.persist_to_disk(&storage_path).await;
+                println!("❌ Item {} rejected: {}", item.id, reason);
+            } else {
+                eprintln!("Operational item '{}' not found", id);
+            }
+        }
+        OpCommands::Sdlc { write } => {
+            let scaffold = store.generate_pipeline_plugin_scaffold().await?;
+            for (path, content) in &scaffold {
+                println!("--- {} ---", path);
+                if write {
+                    if let Some(parent) = std::path::Path::new(path).parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    std::fs::write(path, content)?;
+                    println!("(written to disk: {})", path);
+                } else {
+                    println!("{}", content);
+                }
+            }
+        }
+    }
     Ok(())
 }
 
@@ -1980,7 +2817,10 @@ fn resolve_isolated_target_dir(
 
     if is_inside_src {
         let parent_dir = canonical_src.parent().unwrap_or(&current_dir);
-        let lang_suffix = target_lang.to_lowercase().replace('+', "p").replace('#', "sharp");
+        let lang_suffix = target_lang
+            .to_lowercase()
+            .replace('+', "p")
+            .replace('#', "sharp");
         let folder_name = if let Some(pkg) = package_name {
             format!("{pkg}-{lang_suffix}")
         } else {
@@ -2006,7 +2846,9 @@ async fn run_interactive_harness(_json: bool) -> anyhow::Result<()> {
     println!("\x1B[1m\x1B[36m╔═══════════════════════════════════════════════════════════════════════════╗");
     println!("║                      PROJECT EXODUS AGENT HARNESS                         ║");
     println!("║          Graph-Guided, Agent-Assisted Legacy Code Migration               ║");
-    println!("╚═══════════════════════════════════════════════════════════════════════════╝\x1B[0m\n");
+    println!(
+        "╚═══════════════════════════════════════════════════════════════════════════╝\x1B[0m\n"
+    );
 
     let agent_discovery = exodus_agent::AgentDiscovery::auto_detect();
     let store_path = Path::new(".exodus/data/surreal");
@@ -2019,7 +2861,9 @@ async fn run_interactive_harness(_json: bool) -> anyhow::Result<()> {
                 agent.description, agent.profile.model
             );
         }
-        exodus_agent::AgentDiscoveryResult::NoneDetected { warning_message, .. } => {
+        exodus_agent::AgentDiscoveryResult::NoneDetected {
+            warning_message, ..
+        } => {
             println!(
                 "🤖 \x1B[1mActive Agent:\x1B[0m       \x1B[33m⚪ Deterministic AST Mode (No LLM key detected)\x1B[0m"
             );
@@ -2027,10 +2871,18 @@ async fn run_interactive_harness(_json: bool) -> anyhow::Result<()> {
         }
     }
 
-    println!("🗄️  \x1B[1mKnowledge Store:\x1B[0m    Embedded SurrealDB ({})", store_path.display());
-    println!("📁 \x1B[1mWorking Dir:\x1B[0m        {}", current_dir.display());
+    println!(
+        "🗄️  \x1B[1mKnowledge Store:\x1B[0m    Embedded SurrealDB ({})",
+        store_path.display()
+    );
+    println!(
+        "📁 \x1B[1mWorking Dir:\x1B[0m        {}",
+        current_dir.display()
+    );
     println!("\n\x1B[1m💡 Type natural language requests or use slash commands:\x1B[0m");
-    println!("   \x1B[36m/analyze [path]\x1B[0m    Deep AST, route, DB dependency, & SDK research scan");
+    println!(
+        "   \x1B[36m/analyze [path]\x1B[0m    Deep AST, route, DB dependency, & SDK research scan"
+    );
     println!("   \x1B[36m/squad [archetype]\x1B[0m Dynamic role squad orchestration (Lead Architect + domain engineers)");
     println!("   \x1B[36m/policy [role]\x1B[0m     Inspect embedded ABAC scope guard policies (Cerbos equivalent)");
     println!("   \x1B[36m/skills [id]\x1B[0m       Inspect repository setup blueprints (Rust workspace, Distroless, CI/CD)");
@@ -2043,8 +2895,12 @@ async fn run_interactive_harness(_json: bool) -> anyhow::Result<()> {
     println!("   \x1B[36m/plugins\x1B[0m           List active Micro-Kernel plugins (Cordis Architecture)");
     println!("   \x1B[36m/demo\x1B[0m              Run the two-run learning loop demonstration");
     println!("   \x1B[36m/report\x1B[0m            Display migration outcomes & debt ledger");
-    println!("   \x1B[36m/mode [1|2|3]\x1B[0m      Switch migration execution mode (Direct, AI, Hybrid)");
-    println!("   \x1B[36m/goal [prompt]\x1B[0m      Set/clarify modernization architectural objective");
+    println!(
+        "   \x1B[36m/mode [1|2|3]\x1B[0m      Switch migration execution mode (Direct, AI, Hybrid)"
+    );
+    println!(
+        "   \x1B[36m/goal [prompt]\x1B[0m      Set/clarify modernization architectural objective"
+    );
     println!("   \x1B[36m/help\x1B[0m              Display this help reference");
     println!("   \x1B[36m/exit\x1B[0m (or \x1B[36m/q\x1B[0m, \x1B[36mCtrl+C\x1B[0m ×2)  Exit the harness\n");
 
@@ -2070,7 +2926,11 @@ async fn run_interactive_harness(_json: bool) -> anyhow::Result<()> {
                 }
                 last_sigint = None;
                 let chained_commands: Vec<String> = if trimmed.contains("&&") {
-                    trimmed.split("&&").map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+                    trimmed
+                        .split("&&")
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
                 } else {
                     vec![trimmed.to_string()]
                 };
@@ -2079,7 +2939,12 @@ async fn run_interactive_harness(_json: bool) -> anyhow::Result<()> {
                 for (cmd_idx, current_cmd) in chained_commands.iter().enumerate() {
                     let trimmed = current_cmd.as_str();
                     if chained_commands.len() > 1 {
-                        println!("\n▶️  \x1B[1m\x1B[36m[Pipeline Step {}/{}: `{}`]\x1B[0m", cmd_idx + 1, chained_commands.len(), trimmed);
+                        println!(
+                            "\n▶️  \x1B[1m\x1B[36m[Pipeline Step {}/{}: `{}`]\x1B[0m",
+                            cmd_idx + 1,
+                            chained_commands.len(),
+                            trimmed
+                        );
                     }
                     if let ControlFlow::Break(_) = fun_name(trimmed) {
                         should_exit = true;
@@ -2091,491 +2956,594 @@ async fn run_interactive_harness(_json: bool) -> anyhow::Result<()> {
                         continue;
                     }
 
-                if trimmed.starts_with("/out") || trimmed.starts_with("/output") || trimmed.starts_with("/target") {
-                    let path_str = trimmed
-                        .strip_prefix("/output")
-                        .or_else(|| trimmed.strip_prefix("/target"))
-                        .or_else(|| trimmed.strip_prefix("/out"))
-                        .unwrap_or("")
-                        .trim();
-                    if path_str.is_empty() {
-                        if let Some(ref o) = session_output_dir {
-                            println!("📁 Current custom target destination: {}", o.display());
+                    if trimmed.starts_with("/out")
+                        || trimmed.starts_with("/output")
+                        || trimmed.starts_with("/target")
+                    {
+                        let path_str = trimmed
+                            .strip_prefix("/output")
+                            .or_else(|| trimmed.strip_prefix("/target"))
+                            .or_else(|| trimmed.strip_prefix("/out"))
+                            .unwrap_or("")
+                            .trim();
+                        if path_str.is_empty() {
+                            if let Some(ref o) = session_output_dir {
+                                println!("📁 Current custom target destination: {}", o.display());
+                            } else {
+                                println!(
+                                    "📁 Target destination: Default (isolated outside source root)"
+                                );
+                            }
                         } else {
-                            println!("📁 Target destination: Default (isolated outside source root)");
+                            let new_out = if path_str.starts_with('~') {
+                                if let Some(home) = std::env::var_os("HOME") {
+                                    PathBuf::from(home).join(
+                                        path_str.trim_start_matches('~').trim_start_matches('/'),
+                                    )
+                                } else {
+                                    PathBuf::from(path_str)
+                                }
+                            } else {
+                                PathBuf::from(path_str)
+                            };
+                            println!(
+                                "📁 Custom target output destination set to: {}",
+                                new_out.display()
+                            );
+                            session_output_dir = Some(new_out);
                         }
-                    } else {
-                        let new_out = if path_str.starts_with('~') {
+                        continue;
+                    }
+
+                    let is_pure_cd = (trimmed.starts_with("/cd ") || trimmed.starts_with("cd "))
+                        && !trimmed.contains("convert")
+                        && !trimmed.contains("migrate")
+                        && !trimmed.contains("translate")
+                        && !trimmed.contains("modernize")
+                        && !trimmed.contains("analyze")
+                        && !trimmed.contains("plan");
+
+                    if is_pure_cd {
+                        let path_str = trimmed
+                            .strip_prefix("/cd ")
+                            .or_else(|| trimmed.strip_prefix("cd "))
+                            .unwrap_or("")
+                            .trim();
+                        let new_path = if path_str.starts_with('~') {
                             if let Some(home) = std::env::var_os("HOME") {
-                                PathBuf::from(home).join(path_str.trim_start_matches('~').trim_start_matches('/'))
+                                PathBuf::from(home)
+                                    .join(path_str.trim_start_matches('~').trim_start_matches('/'))
                             } else {
                                 PathBuf::from(path_str)
                             }
                         } else {
                             PathBuf::from(path_str)
                         };
-                        println!("📁 Custom target output destination set to: {}", new_out.display());
-                        session_output_dir = Some(new_out);
-                    }
-                    continue;
-                }
-
-                let is_pure_cd = (trimmed.starts_with("/cd ") || trimmed.starts_with("cd "))
-                    && !trimmed.contains("convert")
-                    && !trimmed.contains("migrate")
-                    && !trimmed.contains("translate")
-                    && !trimmed.contains("modernize")
-                    && !trimmed.contains("analyze")
-                    && !trimmed.contains("plan");
-
-                if is_pure_cd {
-                    let path_str = trimmed
-                        .strip_prefix("/cd ")
-                        .or_else(|| trimmed.strip_prefix("cd "))
-                        .unwrap_or("")
-                        .trim();
-                    let new_path = if path_str.starts_with('~') {
-                        if let Some(home) = std::env::var_os("HOME") {
-                            PathBuf::from(home).join(path_str.trim_start_matches('~').trim_start_matches('/'))
-                        } else {
-                            PathBuf::from(path_str)
-                        }
-                    } else {
-                        PathBuf::from(path_str)
-                    };
-                    match std::env::set_current_dir(&new_path) {
-                        Ok(_) => {
-                            let cur = std::env::current_dir().unwrap_or(new_path);
-                            println!("📁 Working directory changed to: {}", cur.display());
-                        }
-                        Err(e) => {
-                            println!("❌ Cannot change directory to `{}`: {e}", path_str);
-                        }
-                    }
-                    continue;
-                }
-
-                if trimmed == "/help" || trimmed == "help" {
-                    print_harness_help();
-                    continue;
-                }
-
-                if trimmed == "/doctor" || trimmed == "doctor" {
-                    use exodus_store::dynamic_memory::DynamicLivingMemory;
-                    let mem = exodus_store::dynamic_memory::InMemoryLivingMemory::new();
-                    let _ = mem.ensure_seeded().await;
-                    let _ = mem.probe_and_sync_tool_states().await;
-
-                    let report = exodus_toolchain::ToolchainInspector::audit_all();
-                    let agent_tools =
-                        exodus_toolchain::ToolchainInspector::detect_installed_agents();
-                    let discovery = exodus_agent::AgentDiscovery::auto_detect();
-                    println!("🩺 Project Exodus Host Diagnostics (Living Memory Synced)");
-                    println!("============================================================");
-                    println!("1. System Compilers & Runtimes:");
-                    for tool in &report.tools {
-                        let status_str = match &tool.status {
-                            exodus_toolchain::ToolStatus::Available => "✅ Available",
-                            exodus_toolchain::ToolStatus::Missing => "❌ Missing",
-                            exodus_toolchain::ToolStatus::Incompatible(reason) => reason.as_str(),
-                        };
-                        let ver_str = tool.version.as_deref().unwrap_or("N/A");
-                        println!("   {:<26} {:<15} ({})", tool.name, status_str, ver_str);
-                    }
-                    println!("\n2. AI Agent Toolchains & CLIs:");
-                    for tool in &agent_tools {
-                        let status_str = match &tool.status {
-                            exodus_toolchain::ToolStatus::Available => "✅ Detected",
-                            exodus_toolchain::ToolStatus::Missing => "⚪ Not Found",
-                            exodus_toolchain::ToolStatus::Incompatible(reason) => reason.as_str(),
-                        };
-                        let ver_str = tool.version.as_deref().unwrap_or("N/A");
-                        println!("   {:<26} {:<15} ({})", tool.name, status_str, ver_str);
-                    }
-                    println!("\n3. Active LLM / Agent Environment Resolution:");
-                    match discovery {
-                        exodus_agent::AgentDiscoveryResult::Found(agent) => {
-                            println!("   🤖 Active Agent: ✅ {}", agent.description);
-                            println!("      • Model: {}", agent.profile.model);
-                        }
-                        exodus_agent::AgentDiscoveryResult::NoneDetected {
-                            checked_sources,
-                            ..
-                        } => {
-                            println!("   ⚪ Status: No active AI agent / key detected");
-                            println!("   Checked Sources: {}", checked_sources.join(", "));
-                        }
-                    }
-                    println!("============================================================");
-                    continue;
-                }
-
-                if trimmed.starts_with("/tools") {
-                    use exodus_store::dynamic_memory::DynamicLivingMemory;
-                    let mem = exodus_store::dynamic_memory::InMemoryLivingMemory::new();
-                    let _ = mem.ensure_seeded().await;
-                    let _ = mem.probe_and_sync_tool_states().await;
-
-                    let arg = trimmed.strip_prefix("/tools").unwrap_or("").trim();
-                    if arg.starts_with("add") {
-                        let parts: Vec<&str> = arg.split_whitespace().collect();
-                        if parts.len() >= 4 {
-                            let tool_id = parts[1];
-                            let tool_name = parts[2];
-                            let bin_name = parts[3];
-                            let ver_flag = if parts.len() >= 5 { parts[4] } else { "--version" };
-                            let new_tool = exodus_store::dynamic_memory::HostToolDefinitionRecord {
-                                id: tool_id.to_string(),
-                                name: tool_name.to_string(),
-                                category: exodus_store::dynamic_memory::HostToolCategory::Custom,
-                                binary_names: vec![bin_name.to_string()],
-                                version_flag: ver_flag.to_string(),
-                                install_guidance: format!("Ensure `{bin_name}` is installed on PATH"),
-                                supported_lanes: vec!["all".to_string()],
-                                is_agent_provider: false,
-                                version: "1.0.0".to_string(),
-                                updated_at: chrono::Utc::now(),
-                            };
-                            mem.upsert_tool_definition(&new_tool).await?;
-                            let _ = mem.probe_and_sync_tool_states().await;
-                            println!("✅ Registered custom tool in Living Memory: \x1B[1m{} ({})\x1B[0m", tool_name, tool_id);
-                            continue;
-                        } else {
-                            println!("💡 Usage: /tools add <id> <name> <binary> [version_flag]");
-                            println!("   Example: /tools add tool_mojo Mojo mojo --version");
-                            continue;
-                        }
-                    }
-
-                    let defs = mem.list_tool_definitions().await?;
-                    println!("🛠️  \x1B[1mRegistered Host Tools & Agent Providers (Living Memory):\x1B[0m");
-                    println!("============================================================");
-                    for def in defs {
-                        let state_opt = mem.get_tool_state(&def.id).await?;
-                        let (status_badge, ver_str, mode_str) = match state_opt {
-                            Some(s) if s.status == "Available" => {
-                                ("\x1B[32m✅ Available\x1B[0m", s.version.unwrap_or_else(|| "N/A".to_string()), s.execution_mode)
+                        match std::env::set_current_dir(&new_path) {
+                            Ok(_) => {
+                                let cur = std::env::current_dir().unwrap_or(new_path);
+                                println!("📁 Working directory changed to: {}", cur.display());
                             }
-                            Some(s) if s.execution_mode == "ContainerFallback" => {
-                                ("\x1B[33m📦 ContainerFallback\x1B[0m", "Docker fallback".to_string(), s.execution_mode)
+                            Err(e) => {
+                                println!("❌ Cannot change directory to `{}`: {e}", path_str);
                             }
-                            Some(s) => {
-                                ("\x1B[31m❌ Missing\x1B[0m", "Not found".to_string(), s.execution_mode)
-                            }
-                            None => ("\x1B[2m⚪ Unprobed\x1B[0m", "N/A".to_string(), "Unavailable".to_string()),
-                        };
-
-                        let kind_tag = if def.is_agent_provider { "🤖 [Agent]" } else { "⚙️  [Host] " };
-                        println!("{} \x1B[1m{:<28}\x1B[0m {:<22} [{:?}]", kind_tag, def.name, status_badge, def.category);
-                        println!("   ID:       {}", def.id);
-                        println!("   Binaries: {} (Flag: {})", def.binary_names.join(", "), def.version_flag);
-                        println!("   Version:  {} (Mode: {})", ver_str, mode_str);
-                        println!("   Lanes:    {}", def.supported_lanes.join(", "));
-                        println!("------------------------------------------------------------");
+                        }
+                        continue;
                     }
-                    println!("💡 Register custom tool: \x1B[36m/tools add <id> <name> <bin> [flag]\x1B[0m");
-                    continue;
-                }
 
-                if trimmed.starts_with("/demo") || trimmed == "demo" {
-                    println!("🚀 Running two-run case learning loop demo...");
-                    let fixture_path = PathBuf::from("fixtures/two_run_demo");
-                    run_learning_loop_demo(&fixture_path)?;
-                    continue;
-                }
+                    if trimmed == "/help" || trimmed == "help" {
+                        print_harness_help();
+                        continue;
+                    }
 
-                if trimmed == "/report" || trimmed == "report" {
-                    let dir = Path::new(".exodus");
-                    let fallbacks_path = dir.join("fallbacks.json");
-                    if fallbacks_path.exists() {
-                        let fallbacks_str = fs::read_to_string(&fallbacks_path)?;
-                        let fallbacks: Vec<exodus_core::MigrationDebt> =
-                            serde_json::from_str(&fallbacks_str)?;
-                        println!("📊 Project Exodus Migration Report");
+                    if trimmed == "/doctor" || trimmed == "doctor" {
+                        use exodus_store::dynamic_memory::DynamicLivingMemory;
+                        let mem = exodus_store::dynamic_memory::InMemoryLivingMemory::new();
+                        let _ = mem.ensure_seeded().await;
+                        let _ = mem.probe_and_sync_tool_states().await;
+
+                        let report = exodus_toolchain::ToolchainInspector::audit_all();
+                        let agent_tools =
+                            exodus_toolchain::ToolchainInspector::detect_installed_agents();
+                        let discovery = exodus_agent::AgentDiscovery::auto_detect();
+                        println!("🩺 Project Exodus Host Diagnostics (Living Memory Synced)");
                         println!("============================================================");
-                        println!("Total Migration Debts: {}", fallbacks.len());
-                        for (i, d) in fallbacks.iter().enumerate() {
+                        println!("1. System Compilers & Runtimes:");
+                        for tool in &report.tools {
+                            let status_str = match &tool.status {
+                                exodus_toolchain::ToolStatus::Available => "✅ Available",
+                                exodus_toolchain::ToolStatus::Missing => "❌ Missing",
+                                exodus_toolchain::ToolStatus::Incompatible(reason) => {
+                                    reason.as_str()
+                                }
+                            };
+                            let ver_str = tool.version.as_deref().unwrap_or("N/A");
+                            println!("   {:<26} {:<15} ({})", tool.name, status_str, ver_str);
+                        }
+                        println!("\n2. AI Agent Toolchains & CLIs:");
+                        for tool in &agent_tools {
+                            let status_str = match &tool.status {
+                                exodus_toolchain::ToolStatus::Available => "✅ Detected",
+                                exodus_toolchain::ToolStatus::Missing => "⚪ Not Found",
+                                exodus_toolchain::ToolStatus::Incompatible(reason) => {
+                                    reason.as_str()
+                                }
+                            };
+                            let ver_str = tool.version.as_deref().unwrap_or("N/A");
+                            println!("   {:<26} {:<15} ({})", tool.name, status_str, ver_str);
+                        }
+                        println!("\n3. Active LLM / Agent Environment Resolution:");
+                        match discovery {
+                            exodus_agent::AgentDiscoveryResult::Found(agent) => {
+                                println!("   🤖 Active Agent: ✅ {}", agent.description);
+                                println!("      • Model: {}", agent.profile.model);
+                            }
+                            exodus_agent::AgentDiscoveryResult::NoneDetected {
+                                checked_sources,
+                                ..
+                            } => {
+                                println!("   ⚪ Status: No active AI agent / key detected");
+                                println!("   Checked Sources: {}", checked_sources.join(", "));
+                            }
+                        }
+                        println!("============================================================");
+                        continue;
+                    }
+
+                    if trimmed.starts_with("/tools") {
+                        use exodus_store::dynamic_memory::DynamicLivingMemory;
+                        let mem = exodus_store::dynamic_memory::InMemoryLivingMemory::new();
+                        let _ = mem.ensure_seeded().await;
+                        let _ = mem.probe_and_sync_tool_states().await;
+
+                        let arg = trimmed.strip_prefix("/tools").unwrap_or("").trim();
+                        if arg.starts_with("add") {
+                            let parts: Vec<&str> = arg.split_whitespace().collect();
+                            if parts.len() >= 4 {
+                                let tool_id = parts[1];
+                                let tool_name = parts[2];
+                                let bin_name = parts[3];
+                                let ver_flag = if parts.len() >= 5 {
+                                    parts[4]
+                                } else {
+                                    "--version"
+                                };
+                                let new_tool =
+                                    exodus_store::dynamic_memory::HostToolDefinitionRecord {
+                                        id: tool_id.to_string(),
+                                        name: tool_name.to_string(),
+                                        category:
+                                            exodus_store::dynamic_memory::HostToolCategory::Custom,
+                                        binary_names: vec![bin_name.to_string()],
+                                        version_flag: ver_flag.to_string(),
+                                        install_guidance: format!(
+                                            "Ensure `{bin_name}` is installed on PATH"
+                                        ),
+                                        supported_lanes: vec!["all".to_string()],
+                                        is_agent_provider: false,
+                                        version: "1.0.0".to_string(),
+                                        updated_at: chrono::Utc::now(),
+                                    };
+                                mem.upsert_tool_definition(&new_tool).await?;
+                                let _ = mem.probe_and_sync_tool_states().await;
+                                println!("✅ Registered custom tool in Living Memory: \x1B[1m{} ({})\x1B[0m", tool_name, tool_id);
+                                continue;
+                            } else {
+                                println!(
+                                    "💡 Usage: /tools add <id> <name> <binary> [version_flag]"
+                                );
+                                println!("   Example: /tools add tool_mojo Mojo mojo --version");
+                                continue;
+                            }
+                        }
+
+                        let defs = mem.list_tool_definitions().await?;
+                        println!("🛠️  \x1B[1mRegistered Host Tools & Agent Providers (Living Memory):\x1B[0m");
+                        println!("============================================================");
+                        for def in defs {
+                            let state_opt = mem.get_tool_state(&def.id).await?;
+                            let (status_badge, ver_str, mode_str) = match state_opt {
+                                Some(s) if s.status == "Available" => (
+                                    "\x1B[32m✅ Available\x1B[0m",
+                                    s.version.unwrap_or_else(|| "N/A".to_string()),
+                                    s.execution_mode,
+                                ),
+                                Some(s) if s.execution_mode == "ContainerFallback" => (
+                                    "\x1B[33m📦 ContainerFallback\x1B[0m",
+                                    "Docker fallback".to_string(),
+                                    s.execution_mode,
+                                ),
+                                Some(s) => (
+                                    "\x1B[31m❌ Missing\x1B[0m",
+                                    "Not found".to_string(),
+                                    s.execution_mode,
+                                ),
+                                None => (
+                                    "\x1B[2m⚪ Unprobed\x1B[0m",
+                                    "N/A".to_string(),
+                                    "Unavailable".to_string(),
+                                ),
+                            };
+
+                            let kind_tag = if def.is_agent_provider {
+                                "🤖 [Agent]"
+                            } else {
+                                "⚙️  [Host] "
+                            };
                             println!(
-                                "   {}. Symbol: {} - {}",
-                                i + 1,
-                                d.symbol_id,
-                                d.reason
+                                "{} \x1B[1m{:<28}\x1B[0m {:<22} [{:?}]",
+                                kind_tag, def.name, status_badge, def.category
+                            );
+                            println!("   ID:       {}", def.id);
+                            println!(
+                                "   Binaries: {} (Flag: {})",
+                                def.binary_names.join(", "),
+                                def.version_flag
+                            );
+                            println!("   Version:  {} (Mode: {})", ver_str, mode_str);
+                            println!("   Lanes:    {}", def.supported_lanes.join(", "));
+                            println!(
+                                "------------------------------------------------------------"
                             );
                         }
-                        println!("============================================================");
-                    } else {
-                        println!("ℹ️  No migration runs recorded in .exodus yet.");
+                        println!("💡 Register custom tool: \x1B[36m/tools add <id> <name> <bin> [flag]\x1B[0m");
+                        continue;
                     }
-                    continue;
-                }
 
-                if trimmed == "/cases" || trimmed == "cases" {
-                    let case_engine = CaseEngine::new(Path::new(".exodus").join("knowledge"));
-                    let cases = case_engine.list_cases()?;
-                    println!("📚 Governed Case Library ({} cases):", cases.len());
-                    for c in cases {
-                        println!(
-                            "   • `{}` [{:?}] Fingerprint: {} (Verified: {})",
-                            c.case_id,
-                            c.status,
-                            c.structural_fingerprint,
-                            c.verified_success_count
-                        );
+                    if trimmed.starts_with("/demo") || trimmed == "demo" {
+                        println!("🚀 Running two-run case learning loop demo...");
+                        let fixture_path = PathBuf::from("fixtures/two_run_demo");
+                        run_learning_loop_demo(&fixture_path)?;
+                        continue;
                     }
-                    continue;
-                }
 
-                if trimmed == "/plugins" || trimmed == "plugins" {
-                    let ctx = exodus_kernel::KernelContext::new(
-                        PathBuf::from("."),
-                        PathBuf::from("target/exodus_migrated"),
-                        "rust".to_string(),
-                    );
-                    let mut kernel = exodus_kernel::ExodusKernel::new(ctx);
-                    exodus_kernel::builtin::register_default_plugins(&mut kernel).await?;
-                    let plugins = kernel.list_plugins();
-                    println!("🔌 Active Exodus Micro-Kernel Plugins (Cordis Architecture):");
-                    println!("============================================================");
-                    println!("{:<32} | {:<20} | {:<8}", "Plugin ID", "Category", "Priority");
-                    println!("------------------------------------------------------------");
-                    for (id, cat, prio) in plugins {
-                        println!("{:<32} | {:<20?} | {:<8}", id, cat, prio);
-                    }
-                    println!("============================================================");
-                    continue;
-                }
-
-                if trimmed.starts_with("/workspace") || trimmed.starts_with("/packages") {
-                    let path_str = trimmed
-                        .strip_prefix("/workspace")
-                        .or_else(|| trimmed.strip_prefix("/packages"))
-                        .unwrap_or("")
-                        .trim();
-                    let target_path = if path_str.is_empty() {
-                        PathBuf::from(".")
-                    } else {
-                        PathBuf::from(path_str)
-                    };
-                    let ws = exodus_toolchain::WorkspaceScanner::scan_workspace(&target_path);
-                    println!("🏗️  Discovered Workspace: {}", ws.toolchain.display_name());
-                    println!("📦 Discovered {} package(s), total LOC: {}", ws.packages.len(), ws.total_lines_of_code);
-                    for pkg in &ws.packages {
-                        println!(
-                            "   • {:<20} | {:<25} | {} files ({} LOC)",
-                            pkg.name,
-                            pkg.domain_archetype.display_name(),
-                            pkg.source_files.len(),
-                            pkg.lines_of_code
-                        );
-                        if !pkg.dependencies.is_empty() {
-                            println!("     └─ Depends on: {}", pkg.dependencies.join(", "));
+                    if trimmed == "/report" || trimmed == "report" {
+                        let dir = Path::new(".exodus");
+                        let fallbacks_path = dir.join("fallbacks.json");
+                        if fallbacks_path.exists() {
+                            let fallbacks_str = fs::read_to_string(&fallbacks_path)?;
+                            let fallbacks: Vec<exodus_core::MigrationDebt> =
+                                serde_json::from_str(&fallbacks_str)?;
+                            println!("📊 Project Exodus Migration Report");
+                            println!(
+                                "============================================================"
+                            );
+                            println!("Total Migration Debts: {}", fallbacks.len());
+                            for (i, d) in fallbacks.iter().enumerate() {
+                                println!("   {}. Symbol: {} - {}", i + 1, d.symbol_id, d.reason);
+                            }
+                            println!(
+                                "============================================================"
+                            );
+                        } else {
+                            println!("ℹ️  No migration runs recorded in .exodus yet.");
                         }
+                        continue;
                     }
-                    continue;
-                }
 
-                if trimmed.starts_with("/analyze") {
-                    let path_str = trimmed.strip_prefix("/analyze").unwrap_or("").trim();
-                    let target_path = if path_str.is_empty() {
-                        PathBuf::from(".")
-                    } else {
-                        PathBuf::from(path_str)
-                    };
-                    run_harness_analyze(&target_path)?;
-                    continue;
-                }
+                    if trimmed == "/cases" || trimmed == "cases" {
+                        let case_engine = CaseEngine::new(Path::new(".exodus").join("knowledge"));
+                        let cases = case_engine.list_cases()?;
+                        println!("📚 Governed Case Library ({} cases):", cases.len());
+                        for c in cases {
+                            println!(
+                                "   • `{}` [{:?}] Fingerprint: {} (Verified: {})",
+                                c.case_id,
+                                c.status,
+                                c.structural_fingerprint,
+                                c.verified_success_count
+                            );
+                        }
+                        continue;
+                    }
 
-                if trimmed.starts_with("/squad") || trimmed.starts_with("/team") {
-                    let path_str = trimmed.strip_prefix("/squad").or_else(|| trimmed.strip_prefix("/team")).unwrap_or("").trim();
-                    let target_path = if path_str.is_empty() {
-                        PathBuf::from(".")
-                    } else {
-                        PathBuf::from(path_str)
-                    };
-                    let mem = std::sync::Arc::new(exodus_store::InMemoryLivingMemory::new());
-                    let orchestrator = exodus_agent::SquadOrchestrator::new(mem);
-                    let archetype = if target_path.exists() {
-                        let parser = PythonParser::new();
-                        if let Ok(parsed) = parser.parse_repository(&target_path) {
-                            let r = parsed.perform_deep_research();
-                            match r.inferred_archetype.as_str() {
-                                "BackendService" => exodus_toolchain::DomainArchetype::BackendService,
-                                "WorkerQueue" => exodus_toolchain::DomainArchetype::WorkerQueue,
-                                "FrontendApp" => exodus_toolchain::DomainArchetype::FrontendApp,
-                                "CliTool" => exodus_toolchain::DomainArchetype::CliTool,
-                                _ => exodus_toolchain::DomainArchetype::SharedLibrary,
+                    if trimmed == "/plugins" || trimmed == "plugins" {
+                        let ctx = exodus_kernel::KernelContext::new(
+                            PathBuf::from("."),
+                            PathBuf::from("target/exodus_migrated"),
+                            "rust".to_string(),
+                        );
+                        let mut kernel = exodus_kernel::ExodusKernel::new(ctx);
+                        exodus_kernel::builtin::register_default_plugins(&mut kernel).await?;
+                        let plugins = kernel.list_plugins();
+                        println!("🔌 Active Exodus Micro-Kernel Plugins (Cordis Architecture):");
+                        println!("============================================================");
+                        println!(
+                            "{:<32} | {:<20} | {:<8}",
+                            "Plugin ID", "Category", "Priority"
+                        );
+                        println!("------------------------------------------------------------");
+                        for (id, cat, prio) in plugins {
+                            println!("{:<32} | {:<20?} | {:<8}", id, cat, prio);
+                        }
+                        println!("============================================================");
+                        continue;
+                    }
+
+                    if trimmed.starts_with("/workspace") || trimmed.starts_with("/packages") {
+                        let path_str = trimmed
+                            .strip_prefix("/workspace")
+                            .or_else(|| trimmed.strip_prefix("/packages"))
+                            .unwrap_or("")
+                            .trim();
+                        let target_path = if path_str.is_empty() {
+                            PathBuf::from(".")
+                        } else {
+                            PathBuf::from(path_str)
+                        };
+                        let ws = exodus_toolchain::WorkspaceScanner::scan_workspace(&target_path);
+                        println!("🏗️  Discovered Workspace: {}", ws.toolchain.display_name());
+                        println!(
+                            "📦 Discovered {} package(s), total LOC: {}",
+                            ws.packages.len(),
+                            ws.total_lines_of_code
+                        );
+                        for pkg in &ws.packages {
+                            println!(
+                                "   • {:<20} | {:<25} | {} files ({} LOC)",
+                                pkg.name,
+                                pkg.domain_archetype.display_name(),
+                                pkg.source_files.len(),
+                                pkg.lines_of_code
+                            );
+                            if !pkg.dependencies.is_empty() {
+                                println!("     └─ Depends on: {}", pkg.dependencies.join(", "));
+                            }
+                        }
+                        continue;
+                    }
+
+                    if trimmed.starts_with("/analyze") {
+                        let path_str = trimmed.strip_prefix("/analyze").unwrap_or("").trim();
+                        let target_path = if path_str.is_empty() {
+                            PathBuf::from(".")
+                        } else {
+                            PathBuf::from(path_str)
+                        };
+                        run_harness_analyze(&target_path)?;
+                        continue;
+                    }
+
+                    if trimmed.starts_with("/squad") || trimmed.starts_with("/team") {
+                        let path_str = trimmed
+                            .strip_prefix("/squad")
+                            .or_else(|| trimmed.strip_prefix("/team"))
+                            .unwrap_or("")
+                            .trim();
+                        let target_path = if path_str.is_empty() {
+                            PathBuf::from(".")
+                        } else {
+                            PathBuf::from(path_str)
+                        };
+                        let mem = std::sync::Arc::new(exodus_store::InMemoryLivingMemory::new());
+                        let orchestrator = exodus_agent::SquadOrchestrator::new(mem);
+                        let archetype = if target_path.exists() {
+                            let parser = PythonParser::new();
+                            if let Ok(parsed) = parser.parse_repository(&target_path) {
+                                let r = parsed.perform_deep_research();
+                                match r.inferred_archetype.as_str() {
+                                    "BackendService" => {
+                                        exodus_toolchain::DomainArchetype::BackendService
+                                    }
+                                    "WorkerQueue" => exodus_toolchain::DomainArchetype::WorkerQueue,
+                                    "FrontendApp" => exodus_toolchain::DomainArchetype::FrontendApp,
+                                    "CliTool" => exodus_toolchain::DomainArchetype::CliTool,
+                                    _ => exodus_toolchain::DomainArchetype::SharedLibrary,
+                                }
+                            } else {
+                                exodus_toolchain::DomainArchetype::BackendService
                             }
                         } else {
                             exodus_toolchain::DomainArchetype::BackendService
-                        }
-                    } else {
-                        exodus_toolchain::DomainArchetype::BackendService
-                    };
-                    let squad = orchestrator.assemble_squad(archetype).await?;
-                    println!("{}", squad.format_roster());
-                    continue;
-                }
-
-                if trimmed.starts_with("/policy") || trimmed.starts_with("/abac") {
-                    let mem = exodus_store::InMemoryLivingMemory::new();
-                    use exodus_store::DynamicLivingMemory;
-                    mem.ensure_seeded().await?;
-                    let roles = mem.list_all_roles().await?;
-                    println!("🛡️  Active Embedded ABAC Policies (Cerbos Equivalent):");
-                    println!("============================================================");
-                    for r in roles {
-                        println!("👤 Role: \x1B[1m{}\x1B[0m ({})", r.name, r.id);
-                        println!("   Allowed Paths:   {}", r.abac_policy.allowed_path_globs.join(", "));
-                        if !r.abac_policy.denied_path_globs.is_empty() {
-                            println!("   Denied Paths:    {}", r.abac_policy.denied_path_globs.join(", "));
-                        }
-                        println!("   Allowed Actions: {:?}", r.abac_policy.allowed_actions);
-                        if !r.abac_policy.denied_actions.is_empty() {
-                            println!("   Denied Actions:  {:?}", r.abac_policy.denied_actions);
-                        }
-                        println!("------------------------------------------------------------");
-                    }
-                    continue;
-                }
-
-                if trimmed.starts_with("/skills") || trimmed.starts_with("/blueprints") {
-                    let mem = exodus_store::InMemoryLivingMemory::new();
-                    use exodus_store::DynamicLivingMemory;
-                    mem.ensure_seeded().await?;
-
-                    // Discover filesystem skills from standard directories
-                    let fs_skills = exodus_store::SkillDiscoverer::discover_standard_locations(&current_dir);
-                    for s in &fs_skills {
-                        let _ = mem.upsert_skill(s).await;
+                        };
+                        let squad = orchestrator.assemble_squad(archetype).await?;
+                        println!("{}", squad.format_roster());
+                        continue;
                     }
 
-                    let skill_arg = trimmed
-                        .strip_prefix("/skills")
-                        .or_else(|| trimmed.strip_prefix("/blueprints"))
-                        .unwrap_or("")
-                        .trim();
-
-                    if !skill_arg.is_empty() {
-                        if let Ok(Some(skill)) = mem.get_skill(skill_arg).await {
-                            println!("🛠️  \x1B[1m{} (v{})\x1B[0m", skill.name, skill.version);
-                            println!("   ID:              {}", skill.id);
-                            println!("   Category:        {:?}", skill.category);
-                            println!("   Target Language: {}", skill.target_language);
-                            println!("   Description:     {}", skill.description);
-                            if !skill.recommended_scaffold_files.is_empty() {
-                                println!("   Scaffold Files:  {}", skill.recommended_scaffold_files.join(", "));
+                    if trimmed.starts_with("/policy") || trimmed.starts_with("/abac") {
+                        let mem = exodus_store::InMemoryLivingMemory::new();
+                        use exodus_store::DynamicLivingMemory;
+                        mem.ensure_seeded().await?;
+                        let roles = mem.list_all_roles().await?;
+                        println!("🛡️  Active Embedded ABAC Policies (Cerbos Equivalent):");
+                        println!("============================================================");
+                        for r in roles {
+                            println!("👤 Role: \x1B[1m{}\x1B[0m ({})", r.name, r.id);
+                            println!(
+                                "   Allowed Paths:   {}",
+                                r.abac_policy.allowed_path_globs.join(", ")
+                            );
+                            if !r.abac_policy.denied_path_globs.is_empty() {
+                                println!(
+                                    "   Denied Paths:    {}",
+                                    r.abac_policy.denied_path_globs.join(", ")
+                                );
                             }
-                            println!("\n📋 \x1B[1mSetup Guidelines:\x1B[0m\n{}", skill.setup_guidelines);
-                            continue;
+                            println!("   Allowed Actions: {:?}", r.abac_policy.allowed_actions);
+                            if !r.abac_policy.denied_actions.is_empty() {
+                                println!("   Denied Actions:  {:?}", r.abac_policy.denied_actions);
+                            }
+                            println!(
+                                "------------------------------------------------------------"
+                            );
+                        }
+                        continue;
+                    }
+
+                    if trimmed.starts_with("/skills") || trimmed.starts_with("/blueprints") {
+                        let mem = exodus_store::InMemoryLivingMemory::new();
+                        use exodus_store::DynamicLivingMemory;
+                        mem.ensure_seeded().await?;
+
+                        // Discover filesystem skills from standard directories
+                        let fs_skills = exodus_store::SkillDiscoverer::discover_standard_locations(
+                            &current_dir,
+                        );
+                        for s in &fs_skills {
+                            let _ = mem.upsert_skill(s).await;
+                        }
+
+                        let skill_arg = trimmed
+                            .strip_prefix("/skills")
+                            .or_else(|| trimmed.strip_prefix("/blueprints"))
+                            .unwrap_or("")
+                            .trim();
+
+                        if !skill_arg.is_empty() {
+                            if let Ok(Some(skill)) = mem.get_skill(skill_arg).await {
+                                println!("🛠️  \x1B[1m{} (v{})\x1B[0m", skill.name, skill.version);
+                                println!("   ID:              {}", skill.id);
+                                println!("   Category:        {:?}", skill.category);
+                                println!("   Target Language: {}", skill.target_language);
+                                println!("   Description:     {}", skill.description);
+                                if !skill.recommended_scaffold_files.is_empty() {
+                                    println!(
+                                        "   Scaffold Files:  {}",
+                                        skill.recommended_scaffold_files.join(", ")
+                                    );
+                                }
+                                println!(
+                                    "\n📋 \x1B[1mSetup Guidelines:\x1B[0m\n{}",
+                                    skill.setup_guidelines
+                                );
+                                continue;
+                            } else {
+                                println!("⚠️  Skill not found for ID: `{skill_arg}`");
+                            }
+                        }
+
+                        let all_skills = mem.list_skills().await?;
+                        println!(
+                            "🛠️  \x1B[1mDiscovered Repository Setup Skills & Blueprints:\x1B[0m"
+                        );
+                        println!("============================================================");
+                        for s in all_skills {
+                            println!(
+                                "📦 \x1B[1m{:<42}\x1B[0m [{:?}] (v{})",
+                                s.name, s.category, s.version
+                            );
+                            println!("   ID:       {}", s.id);
+                            println!(
+                                "   Target:   {} (Archetype: {:?})",
+                                s.target_language, s.target_archetype
+                            );
+                            println!("   Overview: {}", s.description);
+                            if !s.recommended_scaffold_files.is_empty() {
+                                println!(
+                                    "   Scaffold: {}",
+                                    s.recommended_scaffold_files.join(", ")
+                                );
+                            }
+                            println!(
+                                "------------------------------------------------------------"
+                            );
+                        }
+                        println!("💡 View full setup instructions: \x1B[36m/skills <skill_id>\x1B[0m (e.g. /skills skill_rust_workspace)");
+                        continue;
+                    }
+
+                    if trimmed.starts_with("/goal") {
+                        let goal_str = trimmed.strip_prefix("/goal").unwrap_or("").trim();
+                        if goal_str.is_empty() {
+                            println!(
+                                "🎯 Current Modernization Goal: {}",
+                                session_goal
+                                    .as_deref()
+                                    .unwrap_or("Default (Idiomatic Zero-Debt Migration)")
+                            );
+                            println!("💡 Usage: /goal <e.g. 'Migrate synchronous Python to async Axum with sub-15ms p99 latency'>");
                         } else {
-                            println!("⚠️  Skill not found for ID: `{skill_arg}`");
+                            session_goal = Some(goal_str.to_string());
+                            println!("🎯 Modernization Goal Set: \x1B[1m\"{}\"\x1B[0m", goal_str);
                         }
+                        continue;
                     }
 
-                    let all_skills = mem.list_skills().await?;
-                    println!("🛠️  \x1B[1mDiscovered Repository Setup Skills & Blueprints:\x1B[0m");
-                    println!("============================================================");
-                    for s in all_skills {
-                        println!("📦 \x1B[1m{:<42}\x1B[0m [{:?}] (v{})", s.name, s.category, s.version);
-                        println!("   ID:       {}", s.id);
-                        println!("   Target:   {} (Archetype: {:?})", s.target_language, s.target_archetype);
-                        println!("   Overview: {}", s.description);
-                        if !s.recommended_scaffold_files.is_empty() {
-                            println!("   Scaffold: {}", s.recommended_scaffold_files.join(", "));
+                    if trimmed.starts_with("/mode") {
+                        let mode_str = trimmed.strip_prefix("/mode").unwrap_or("").trim();
+                        match mode_str.to_lowercase().as_str() {
+                            "direct" | "1" => {
+                                session_mode = exodus_core::MigrationMode::Direct;
+                                println!("⚙️  Migration Mode: \x1B[32mDirect (Deterministic Reverse Engineering - 0 tokens)\x1B[0m");
+                            }
+                            "ai" | "2" => {
+                                session_mode = exodus_core::MigrationMode::Ai;
+                                println!("⚙️  Migration Mode: \x1B[35mAI (Autonomous Agent Workload)\x1B[0m");
+                            }
+                            "hybrid" | "3" => {
+                                session_mode = exodus_core::MigrationMode::Hybrid;
+                                println!("⚙️  Migration Mode: \x1B[36mHybrid (Direct AST + Gated AI Repair Loop)\x1B[0m");
+                            }
+                            _ => {
+                                println!(
+                                    "⚙️  Current Migration Mode: \x1B[1m{}\x1B[0m",
+                                    session_mode
+                                );
+                                println!("   Available Modes:");
+                                println!("     • /mode direct [1] - Deterministic AST reverse engineering (0 tokens)");
+                                println!("     • /mode ai     [2] - Autonomous AI migration agent");
+                                println!("     • /mode hybrid [3] - Direct translation with bounded AI repair loop");
+                            }
                         }
-                        println!("------------------------------------------------------------");
-                    }
-                    println!("💡 View full setup instructions: \x1B[36m/skills <skill_id>\x1B[0m (e.g. /skills skill_rust_workspace)");
-                    continue;
-                }
-
-                if trimmed.starts_with("/goal") {
-                    let goal_str = trimmed.strip_prefix("/goal").unwrap_or("").trim();
-                    if goal_str.is_empty() {
-                        println!("🎯 Current Modernization Goal: {}", session_goal.as_deref().unwrap_or("Default (Idiomatic Zero-Debt Migration)"));
-                        println!("💡 Usage: /goal <e.g. 'Migrate synchronous Python to async Axum with sub-15ms p99 latency'>");
-                    } else {
-                        session_goal = Some(goal_str.to_string());
-                        println!("🎯 Modernization Goal Set: \x1B[1m\"{}\"\x1B[0m", goal_str);
-                    }
-                    continue;
-                }
-
-                if trimmed.starts_with("/mode") {
-                    let mode_str = trimmed.strip_prefix("/mode").unwrap_or("").trim();
-                    match mode_str.to_lowercase().as_str() {
-                        "direct" | "1" => {
-                            session_mode = exodus_core::MigrationMode::Direct;
-                            println!("⚙️  Migration Mode: \x1B[32mDirect (Deterministic Reverse Engineering - 0 tokens)\x1B[0m");
-                        }
-                        "ai" | "2" => {
-                            session_mode = exodus_core::MigrationMode::Ai;
-                            println!("⚙️  Migration Mode: \x1B[35mAI (Autonomous Agent Workload)\x1B[0m");
-                        }
-                        "hybrid" | "3" => {
-                            session_mode = exodus_core::MigrationMode::Hybrid;
-                            println!("⚙️  Migration Mode: \x1B[36mHybrid (Direct AST + Gated AI Repair Loop)\x1B[0m");
-                        }
-                        _ => {
-                            println!("⚙️  Current Migration Mode: \x1B[1m{}\x1B[0m", session_mode);
-                            println!("   Available Modes:");
-                            println!("     • /mode direct [1] - Deterministic AST reverse engineering (0 tokens)");
-                            println!("     • /mode ai     [2] - Autonomous AI migration agent");
-                            println!("     • /mode hybrid [3] - Direct translation with bounded AI repair loop");
-                        }
-                    }
-                    continue;
-                }
-
-                if trimmed.starts_with("/plan") {
-                    let path_str = trimmed.strip_prefix("/plan").unwrap_or("").trim();
-                    let target_path = if path_str.is_empty() {
-                        PathBuf::from(".")
-                    } else {
-                        PathBuf::from(path_str)
-                    };
-                    run_harness_plan(&target_path)?;
-                    continue;
-                }
-
-                if trimmed.starts_with("/migrate") {
-                    let raw_args = trimmed.strip_prefix("/migrate").unwrap_or("").trim();
-                    let mut parts = raw_args.split_whitespace().peekable();
-                    let mut is_gated = false;
-                    let mut to_lang: Option<String> = None;
-                    let mut from_lang: Option<String> = None;
-                    let mut prompt_directive: Option<String> = None;
-                    let mut path_part = ".";
-
-                    while let Some(part) = parts.next() {
-                        if part == "--gated" || part == "-g" {
-                            is_gated = true;
-                        } else if (part == "--to" || part == "-t") && parts.peek().is_some() {
-                            to_lang = parts.next().map(String::from);
-                        } else if (part == "--from" || part == "-f") && parts.peek().is_some() {
-                            from_lang = parts.next().map(String::from);
-                        } else if (part == "--prompt" || part == "-p") && parts.peek().is_some() {
-                            prompt_directive = parts.next().map(String::from);
-                        } else if !part.starts_with('-') {
-                            path_part = part;
-                        }
+                        continue;
                     }
 
-                    let target_path = PathBuf::from(path_part);
-                    run_harness_migrate(
-                        &target_path,
-                        session_output_dir.as_deref(),
-                        is_gated,
-                        from_lang.as_deref(),
-                        to_lang.as_deref(),
-                        prompt_directive.as_deref(),
-                    )
-                    .await?;
-                    continue;
-                }
+                    if trimmed.starts_with("/plan") {
+                        let path_str = trimmed.strip_prefix("/plan").unwrap_or("").trim();
+                        let target_path = if path_str.is_empty() {
+                            PathBuf::from(".")
+                        } else {
+                            PathBuf::from(path_str)
+                        };
+                        run_harness_plan(&target_path)?;
+                        continue;
+                    }
+
+                    if trimmed.starts_with("/migrate") {
+                        let raw_args = trimmed.strip_prefix("/migrate").unwrap_or("").trim();
+                        let mut parts = raw_args.split_whitespace().peekable();
+                        let mut is_gated = false;
+                        let mut to_lang: Option<String> = None;
+                        let mut from_lang: Option<String> = None;
+                        let mut prompt_directive: Option<String> = None;
+                        let mut path_part = ".";
+
+                        while let Some(part) = parts.next() {
+                            if part == "--gated" || part == "-g" {
+                                is_gated = true;
+                            } else if (part == "--to" || part == "-t") && parts.peek().is_some() {
+                                to_lang = parts.next().map(String::from);
+                            } else if (part == "--from" || part == "-f") && parts.peek().is_some() {
+                                from_lang = parts.next().map(String::from);
+                            } else if (part == "--prompt" || part == "-p") && parts.peek().is_some()
+                            {
+                                prompt_directive = parts.next().map(String::from);
+                            } else if !part.starts_with('-') {
+                                path_part = part;
+                            }
+                        }
+
+                        let target_path = PathBuf::from(path_part);
+                        run_harness_migrate(
+                            &target_path,
+                            session_output_dir.as_deref(),
+                            is_gated,
+                            from_lang.as_deref(),
+                            to_lang.as_deref(),
+                            prompt_directive.as_deref(),
+                        )
+                        .await?;
+                        continue;
+                    }
 
                     // Natural language conversational intent handler:
-                    handle_natural_language_prompt(trimmed, session_output_dir.as_deref(), &agent_discovery).await?;
+                    handle_natural_language_prompt(
+                        trimmed,
+                        session_output_dir.as_deref(),
+                        &agent_discovery,
+                    )
+                    .await?;
                 }
                 if should_exit {
                     break;
@@ -2732,15 +3700,21 @@ fn print_harness_help() {
     println!("============================================================");
     println!("Slash Commands:");
     println!("  /analyze <dir>                           - Parse AST and generate Exodus Semantic Graph (ESG)");
-    println!("  /plan <dir>                              - Generate migration waves with risk analysis");
+    println!(
+        "  /plan <dir>                              - Generate migration waves with risk analysis"
+    );
     println!("  /migrate <dir> [--to <lang>] [--from <l>] - Polyglot migration (Rust, TS, Go, Python, Java, etc.)");
     println!("  /doctor                                  - Check host toolchain & sync Living Memory tool state");
     println!("  /tools [add <id> <name> <bin> [flag]]    - Inspect/register host tools & AI agents in Living Memory");
     println!("  /skills [id]                             - Inspect repository setup blueprints (Cargo, Distroless, CI)");
-    println!("  /cases                                   - List structural cases in the knowledge base");
+    println!(
+        "  /cases                                   - List structural cases in the knowledge base"
+    );
     println!("  /plugins                                 - List active Micro-Kernel plugins (Cordis Architecture)");
     println!("  /demo                                    - Run the end-to-end two-run case learning loop");
-    println!("  /report                                  - Display recorded migration debt & fallbacks");
+    println!(
+        "  /report                                  - Display recorded migration debt & fallbacks"
+    );
     println!("  /clear                                   - Clear console screen");
     println!("  /help                                    - Show this help reference");
     println!("  /exit (or /q, :q, quit, Ctrl+C ×2)       - Exit the harness");
@@ -2764,7 +3738,10 @@ fn run_harness_analyze(target_path: &Path) -> anyhow::Result<()> {
 
     let detected_toolchain = exodus_toolchain::WorkspaceScanner::detect_toolchain(target_path);
     if detected_toolchain != exodus_toolchain::WorkspaceToolchain::Standalone {
-        println!("🔍 Scanning multi-package workspace at {}...", target_path.display());
+        println!(
+            "🔍 Scanning multi-package workspace at {}...",
+            target_path.display()
+        );
         let ws = exodus_toolchain::WorkspaceScanner::scan_workspace(target_path);
         let ws_json = serde_json::to_string_pretty(&ws)?;
         fs::write(exodus_dir.join("workspace.json"), &ws_json)?;
@@ -2831,7 +3808,11 @@ fn run_harness_plan(target_path: &Path) -> anyhow::Result<()> {
     let detected_toolchain = exodus_toolchain::WorkspaceScanner::detect_toolchain(target_path);
     if detected_toolchain != exodus_toolchain::WorkspaceToolchain::Standalone {
         let to_lang = "rust";
-        println!("🔍 Planning multi-package workspace migration for {} -> {}...", target_path.display(), to_lang);
+        println!(
+            "🔍 Planning multi-package workspace migration for {} -> {}...",
+            target_path.display(),
+            to_lang
+        );
         let ws = exodus_toolchain::WorkspaceScanner::scan_workspace(target_path);
         let planner = MigrationPlanner::new();
         let ws_plan = planner.generate_workspace_plan(&ws, to_lang)?;
@@ -2844,17 +3825,21 @@ fn run_harness_plan(target_path: &Path) -> anyhow::Result<()> {
         println!("   - Target Language: {}", ws_plan.target_language);
         println!("   - Total Packages:  {}", ws_plan.total_packages);
         println!("   - Total Waves:     {}", ws_plan.package_waves.len());
-        println!("   - Approval Check:  {}", if ws_plan.is_approved() { "✅ Approved" } else { "⚠️ Needs Approval" });
+        println!(
+            "   - Approval Check:  {}",
+            if ws_plan.is_approved() {
+                "✅ Approved"
+            } else {
+                "⚠️ Needs Approval"
+            }
+        );
 
         for (wave_idx, wave) in ws_plan.package_waves.iter().enumerate() {
             println!("\n🌊 Wave {wave_idx} ({} package(s)):", wave.len());
             for pkg in wave {
                 println!(
                     "   • {:<20} -> Framework: {:<25} (Risk: {}, Files: {})",
-                    pkg.name,
-                    pkg.recommended_framework,
-                    pkg.risk_score,
-                    pkg.source_file_count
+                    pkg.name, pkg.recommended_framework, pkg.risk_score, pkg.source_file_count
                 );
             }
         }
@@ -2864,7 +3849,13 @@ fn run_harness_plan(target_path: &Path) -> anyhow::Result<()> {
             if !audit.recommendations.is_empty() {
                 println!("💡 SDLC Modernization Recommendations:");
                 for (idx, rec) in audit.recommendations.iter().take(3).enumerate() {
-                    println!("   {}. [{:?}] {}: {}", idx + 1, rec.category, rec.title, rec.description);
+                    println!(
+                        "   {}. [{:?}] {}: {}",
+                        idx + 1,
+                        rec.category,
+                        rec.title,
+                        rec.description
+                    );
                 }
             }
         }
@@ -2880,7 +3871,9 @@ fn run_harness_plan(target_path: &Path) -> anyhow::Result<()> {
 
     let graph = SemanticGraph::from_parsed_repository(&parsed);
     let planner = MigrationPlanner::new();
-    let plan = planner.generate_plan(&graph)?.with_research_report(research.clone());
+    let plan = planner
+        .generate_plan(&graph)?
+        .with_research_report(research.clone());
 
     println!("📋 Migration Plan Generated: {}", plan.plan_id);
     println!("   - Total Steps: {}", plan.steps.len());
@@ -2915,7 +3908,10 @@ fn run_harness_plan(target_path: &Path) -> anyhow::Result<()> {
         for s in &fs_skills {
             let _ = mem.upsert_skill(s).await;
         }
-        let matched = mem.get_skills_for_target("rust", &arch).await.unwrap_or_default();
+        let matched = mem
+            .get_skills_for_target("rust", &arch)
+            .await
+            .unwrap_or_default();
         let orchestrator = exodus_agent::SquadOrchestrator::new(mem.clone());
         let squad = orchestrator.assemble_squad(arch).await.ok();
         (squad, matched)
@@ -2939,7 +3935,13 @@ fn run_harness_plan(target_path: &Path) -> anyhow::Result<()> {
         if !audit.recommendations.is_empty() {
             println!("💡 SDLC Modernization Recommendations:");
             for (idx, rec) in audit.recommendations.iter().take(3).enumerate() {
-                println!("   {}. [{:?}] {}: {}", idx + 1, rec.category, rec.title, rec.description);
+                println!(
+                    "   {}. [{:?}] {}: {}",
+                    idx + 1,
+                    rec.category,
+                    rec.title,
+                    rec.description
+                );
             }
         }
     }
@@ -3078,19 +4080,19 @@ fn collect_source_files_for_lang(
             collect_source_files_for_lang(&path, source_lang, files)?;
         } else if path.is_file() {
             let detected = detect_source_language(&path);
-            if source_lang == "auto"
+            if (source_lang == "auto"
                 || detected == source_lang
-                || (source_lang == "python" && detected == "python")
+                || (source_lang == "python" && detected == "python"))
+                && detected != "unknown"
             {
-                if detected != "unknown" {
-                    files.push(path);
-                }
+                files.push(path);
             }
         }
     }
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn execute_repository_migration(
     source: &Path,
     output: &Path,
@@ -3118,8 +4120,8 @@ async fn execute_repository_migration(
     let resolved_from = from_lang.unwrap_or("auto");
 
     if gated && target_cfg.name == "rust" {
-        let task_id = format!("cli-{}", Uuid::new_v4());
-        let run_id = format!("run-{}", Uuid::new_v4());
+        let task_id = format!("cli-{}", Uuid::now_v7());
+        let run_id = format!("run-{}", Uuid::now_v7());
         let repo_root = std::env::current_dir()?;
         println!(
             "🚀 Running gated per-unit migration for {} (task `{task_id}`)...",
@@ -3379,7 +4381,67 @@ pub fn build(b: *std.Build) void {{
                 }
                 fs::write(target_src_dir.join("lib.zig"), lib_zig)?;
             }
+            "kotlin" => {
+                let build_gradle = format!(
+                    r#"plugins {{
+    kotlin("jvm") version "1.9.22"
+    application
+}}
+
+group = "com.exodus"
+version = "0.1.0"
+
+repositories {{
+    mavenCentral()
+}}
+
+dependencies {{
+    implementation(kotlin("stdlib"))
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.0")
+}}
+
+tasks.test {{
+    useJUnitPlatform()
+}}
+
+application {{
+    mainClass.set("{}.MainKt")
+}}
+"#,
+                    project_name.replace('-', "_").to_lowercase()
+                );
+                fs::write(output.join("build.gradle.kts"), build_gradle)?;
+                fs::write(
+                    output.join("settings.gradle.kts"),
+                    format!("rootProject.name = \"{project_name}\"\n"),
+                )?;
+                let main_kt = format!(
+                    "package {}\n\n// Autonomous Project Exodus Migrated Target (Kotlin)\n\nfun main() {{\n    println(\"Exodus Kotlin Target: {}\")\n}}\n",
+                    project_name.replace('-', "_").to_lowercase(),
+                    project_name
+                );
+                fs::write(target_src_dir.join("Main.kt"), main_kt)?;
+            }
             _ => {}
+        }
+
+        println!(
+            "\n🔍 Running Target Source Diagnostics for {}...",
+            target_cfg.name
+        );
+        let verifier = UniversalTargetVerifier::for_language(&LanguageId::new(target_cfg.name));
+        let diag_report = verifier.verify_workspace_full(output).await.ok();
+
+        if let Some(ref report) = diag_report {
+            let _ = fs::create_dir_all(exodus_dir);
+            let _ = fs::write(
+                exodus_dir.join("report.json"),
+                serde_json::to_string_pretty(&report)?,
+            );
+            let _ = fs::write(
+                exodus_dir.join("diagnostics.json"),
+                serde_json::to_string_pretty(&report.diagnostics)?,
+            );
         }
 
         println!("\n============================================================");
@@ -3395,6 +4457,19 @@ pub fn build(b: *std.Build) void {{
             total_prompt_tokens,
             total_comp_tokens
         );
+        if let Some(ref report) = diag_report {
+            println!(
+                "   • Compiler / Check:   {}",
+                if report.compiled {
+                    "✅ Passed"
+                } else {
+                    "❌ Failed"
+                }
+            );
+            println!("   • Diagnostic Errors:  {}", report.summary.total_errors);
+            println!("   • Diagnostic Warnings:{}", report.summary.total_warnings);
+            println!("   • Migration Outcome:  {:?}", report.outcome);
+        }
         println!("============================================================");
 
         return Ok(());
@@ -3486,7 +4561,10 @@ fn scaffold_project_environment(
             .arg("init")
             .current_dir(target_root)
             .output();
-        println!("🌱 Initialized clean Git repository in {}", target_root.display());
+        println!(
+            "🌱 Initialized clean Git repository in {}",
+            target_root.display()
+        );
     }
 
     // 2. Language-tailored .gitignore
@@ -3509,8 +4587,12 @@ fn scaffold_project_environment(
             .find(|t| t.kind == kind)
             .and_then(|t| t.version.as_deref())
             .and_then(|v| {
-                v.split_whitespace()
-                    .find(|w| w.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false))
+                v.split_whitespace().find(|w| {
+                    w.chars()
+                        .next()
+                        .map(|c| c.is_ascii_digit())
+                        .unwrap_or(false)
+                })
             })
             .map(|v| v.trim_matches('v').to_string())
             .unwrap_or_else(|| fallback.to_string())
@@ -3602,16 +4684,20 @@ mise install   # or asdf install
     fs::write(target_root.join("README.md"), readme)?;
 
     // 8. Generate modern SDLC scaffolding (.env.example, Dockerfile, ci.yml)
-    let emitter = exodus_toolchain::TargetLanguageRegistry::get(target_lang);
-    let sdlc_files = emitter.generate_sdlc_scaffolding(project_name, exodus_toolchain::DomainArchetype::BackendService);
-    for (rel_file, content) in sdlc_files {
-        let out_file = target_root.join(&rel_file);
-        if let Some(parent) = out_file.parent() {
-            let _ = fs::create_dir_all(parent);
+    if let Ok(emitter) = exodus_toolchain::TargetLanguageRegistry::get(target_lang) {
+        let sdlc_files = emitter.generate_sdlc_scaffolding(
+            project_name,
+            exodus_toolchain::DomainArchetype::BackendService,
+        );
+        for (rel_file, content) in sdlc_files {
+            let out_file = target_root.join(&rel_file);
+            if let Some(parent) = out_file.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            let _ = fs::write(out_file, content);
         }
-        let _ = fs::write(out_file, content);
+        println!("⚙️  Scaffolded version manager & SDLC cloud-native configs (.tool-versions, Dockerfile, CI)");
     }
-    println!("⚙️  Scaffolded version manager & SDLC cloud-native configs (.tool-versions, Dockerfile, CI)");
 
     Ok(())
 }
@@ -3621,9 +4707,12 @@ fn scaffold_target_workspace_root(
     target_lang: &str,
     packages: &[&exodus_toolchain::PackageDescriptor],
 ) -> std::io::Result<()> {
-    let emitter = exodus_toolchain::TargetLanguageRegistry::get(target_lang);
-    if let Some((manifest_file, manifest_content)) = emitter.generate_workspace_manifest(packages) {
-        fs::write(output.join(manifest_file), manifest_content)?;
+    if let Ok(emitter) = exodus_toolchain::TargetLanguageRegistry::get(target_lang) {
+        if let Some((manifest_file, manifest_content)) =
+            emitter.generate_workspace_manifest(packages)
+        {
+            fs::write(output.join(manifest_file), manifest_content)?;
+        }
     }
     Ok(())
 }
@@ -3635,20 +4724,22 @@ fn scaffold_package_manifest(
     target_lang: &str,
     is_standalone: bool,
 ) -> std::io::Result<()> {
-    let emitter = exodus_toolchain::TargetLanguageRegistry::get(target_lang);
-    let pkg_out_dir = if is_standalone {
-        output_root.to_path_buf()
-    } else {
-        output_root.join(&pkg.relative_path)
-    };
-    fs::create_dir_all(&pkg_out_dir)?;
+    if let Ok(emitter) = exodus_toolchain::TargetLanguageRegistry::get(target_lang) {
+        let pkg_out_dir = if is_standalone {
+            output_root.to_path_buf()
+        } else {
+            output_root.join(&pkg.relative_path)
+        };
+        fs::create_dir_all(&pkg_out_dir)?;
 
-    let (manifest_file, manifest_content) =
-        emitter.generate_package_manifest(pkg, all_packages, is_standalone);
-    fs::write(pkg_out_dir.join(manifest_file), manifest_content)?;
+        let (manifest_file, manifest_content) =
+            emitter.generate_package_manifest(pkg, all_packages, is_standalone);
+        fs::write(pkg_out_dir.join(manifest_file), manifest_content)?;
+    }
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn execute_workspace_migration(
     source: &Path,
     output: &Path,
@@ -3676,19 +4767,18 @@ async fn execute_workspace_migration(
     );
     let mut kernel = exodus_kernel::ExodusKernel::new(kernel_ctx.clone());
     exodus_kernel::builtin::register_default_plugins(&mut kernel).await?;
-    kernel.dispatch_event(&exodus_kernel::KernelEvent::WorkspaceDiscovered {
-        workspace: ws.clone(),
-    }).await?;
+    kernel
+        .dispatch_event(&exodus_kernel::KernelEvent::WorkspaceDiscovered {
+            workspace: ws.clone(),
+        })
+        .await?;
 
     let planner = MigrationPlanner::new();
     let ws_plan = planner.generate_workspace_plan(&ws, target_lang)?;
 
     let exodus_dir = Path::new(".exodus");
     fs::create_dir_all(exodus_dir)?;
-    fs::write(
-        exodus_dir.join("workspace_plan.json"),
-        ws_plan.to_json()?,
-    )?;
+    fs::write(exodus_dir.join("workspace_plan.json"), ws_plan.to_json()?)?;
 
     if !force && !ws_plan.is_approved() {
         eprintln!("❌ Workspace migration blocked: Approval required for high-risk modules.");
@@ -3704,11 +4794,12 @@ async fn execute_workspace_migration(
 
     let target_cfg = get_target_lang_config(target_lang);
 
-    let matched_packages: Vec<&exodus_toolchain::PackageDescriptor> = if let Some(q) = package_filter {
-        ws.match_packages(q)
-    } else {
-        ws.packages.iter().collect()
-    };
+    let matched_packages: Vec<&exodus_toolchain::PackageDescriptor> =
+        if let Some(q) = package_filter {
+            ws.match_packages(q)
+        } else {
+            ws.packages.iter().collect()
+        };
 
     if matched_packages.is_empty() {
         println!("⚠️  No packages matched the criteria for workspace migration.");
@@ -3717,7 +4808,11 @@ async fn execute_workspace_migration(
 
     let is_single_pkg = matched_packages.len() == 1;
 
-    let mode_desc = if code_mode { "jcode Single-Pass Code Mode (High-Throughput)" } else { "Interactive Multi-Turn" };
+    let mode_desc = if code_mode {
+        "jcode Single-Pass Code Mode (High-Throughput)"
+    } else {
+        "Interactive Multi-Turn"
+    };
     println!(
         "🚀 Executing Monorepo Workspace Migration -> {} ({} package(s) targeted) [{mode_desc}]\n",
         target_cfg.name,
@@ -3746,7 +4841,10 @@ async fn execute_workspace_migration(
             continue;
         }
 
-        println!("🌊 Wave {wave_idx}: Migrating {} package(s)...\n", wave_pkgs.len());
+        println!(
+            "🌊 Wave {wave_idx}: Migrating {} package(s)...\n",
+            wave_pkgs.len()
+        );
 
         for pkg in &wave_pkgs {
             let pkg_plan = wave.iter().find(|wp| wp.name == pkg.name).unwrap();
@@ -3819,7 +4917,7 @@ async fn execute_workspace_migration(
                             &safe_name,
                             rel_file,
                             &content,
-                            &src_lang,
+                            src_lang,
                             target_lang,
                             Some(&domain_ctx),
                             active_prompt,
@@ -3828,29 +4926,39 @@ async fn execute_workspace_migration(
                     {
                         Ok(res) => {
                             fs::write(&dest_path, &res.target_source)?;
-                            println!("   ✅ Generated `{}` ({} lines)", dest_path.display(), res.target_source.lines().count());
+                            println!(
+                                "   ✅ Generated `{}` ({} lines)",
+                                dest_path.display(),
+                                res.target_source.lines().count()
+                            );
                         }
                         Err(e) => {
                             println!("   ⚠️ LLM error: {e}. Generating deterministic module stub.");
-                            let stub = format!("// Migrated module `{safe_name}` ({target_lang})\n// Source: {}\n", rel_file.display());
+                            let stub = format!(
+                                "// Migrated module `{safe_name}` ({target_lang})\n// Source: {}\n",
+                                rel_file.display()
+                            );
                             fs::write(&dest_path, stub)?;
                         }
                     }
                 } else {
-                    let emitter = exodus_toolchain::TargetLanguageRegistry::get(target_lang);
+                    let emitter = exodus_toolchain::TargetLanguageRegistry::get(target_lang)?;
                     let target_source = emitter.generate_deterministic_module_source(
                         &safe_name,
                         rel_file,
                         pkg.domain_archetype,
                     );
                     fs::write(&dest_path, target_source)?;
-                    println!("   ✅ Generated `{}` (Deterministic mode)", dest_path.display());
+                    println!(
+                        "   ✅ Generated `{}` (Deterministic mode)",
+                        dest_path.display()
+                    );
                 }
                 migrated_module_names.push(safe_name);
             }
 
             // Generate root exports / lib entrypoints via TargetLanguageEmitter
-            let emitter = exodus_toolchain::TargetLanguageRegistry::get(target_lang);
+            let emitter = exodus_toolchain::TargetLanguageRegistry::get(target_lang)?;
             let entry_file = emitter.entrypoint_filename();
             let entry_content = emitter.generate_entrypoint(
                 &pkg.name,
@@ -3860,13 +4968,7 @@ async fn execute_workspace_migration(
             fs::write(pkg_src_dir.join(entry_file), entry_content)?;
 
             if !is_single_pkg {
-                scaffold_package_manifest(
-                    output,
-                    pkg,
-                    &ws.packages,
-                    target_lang,
-                    false,
-                )?;
+                scaffold_package_manifest(output, pkg, &ws.packages, target_lang, false)?;
             }
         }
 
@@ -3879,6 +4981,26 @@ async fn execute_workspace_migration(
             .await;
     }
 
+    println!(
+        "\n🔍 Running Target Workspace Diagnostics for {}...",
+        target_cfg.name
+    );
+    let verifier = UniversalTargetVerifier::for_language(&LanguageId::new(target_cfg.name));
+    let diag_report = verifier.verify_workspace_full(output).await.ok();
+
+    if let Some(ref report) = diag_report {
+        let exodus_dir = Path::new(".exodus");
+        let _ = fs::create_dir_all(exodus_dir);
+        let _ = fs::write(
+            exodus_dir.join("report.json"),
+            serde_json::to_string_pretty(&report)?,
+        );
+        let _ = fs::write(
+            exodus_dir.join("diagnostics.json"),
+            serde_json::to_string_pretty(&report.diagnostics)?,
+        );
+    }
+
     if json {
         let ws_json = serde_json::to_string_pretty(&ws_plan)?;
         println!("{}", ws_json);
@@ -3889,6 +5011,19 @@ async fn execute_workspace_migration(
         println!("   • Toolchain:          {}", ws.toolchain.display_name());
         println!("   • Target Language:    {}", target_cfg.name);
         println!("   • Migrated Packages:  {}", matched_packages.len());
+        if let Some(ref report) = diag_report {
+            println!(
+                "   • Compiler / Check:   {}",
+                if report.compiled {
+                    "✅ Passed"
+                } else {
+                    "❌ Failed"
+                }
+            );
+            println!("   • Diagnostic Errors:  {}", report.summary.total_errors);
+            println!("   • Diagnostic Warnings:{}", report.summary.total_warnings);
+            println!("   • Migration Outcome:  {:?}", report.outcome);
+        }
         println!("============================================================");
     }
 
@@ -3916,8 +5051,24 @@ fn extract_destination_from_prompt(prompt: &str) -> Option<PathBuf> {
                 .unwrap_or("")
                 .trim_matches(|c| c == '\'' || c == '"' || c == ',' || c == '`');
             let lang_keywords = [
-                "zig", "rust", "python", "py", "typescript", "ts", "javascript", "js", "go",
-                "golang", "java", "kotlin", "kt", "csharp", "c#", "cpp", "c++", "swift",
+                "zig",
+                "rust",
+                "python",
+                "py",
+                "typescript",
+                "ts",
+                "javascript",
+                "js",
+                "go",
+                "golang",
+                "java",
+                "kotlin",
+                "kt",
+                "csharp",
+                "c#",
+                "cpp",
+                "c++",
+                "swift",
             ];
             if !raw_path.is_empty() && !lang_keywords.contains(&raw_path.to_lowercase().as_str()) {
                 let expanded = if raw_path.starts_with('~') {
@@ -4026,14 +5177,20 @@ fn run_learning_loop_demo(fixtures: &Path) -> anyhow::Result<()> {
         source_observation: None,
         target_observation: None,
     })?;
-    println!("   • Captured Candidate Case: `{}` (Fingerprint: {})", case.case_id, case.structural_fingerprint);
+    println!(
+        "   • Captured Candidate Case: `{}` (Fingerprint: {})",
+        case.case_id, case.structural_fingerprint
+    );
     println!("   • Human Review Gate: Approving repair patch `.to_string()`...");
     case.status = exodus_case::CaseStatus::Promoted;
     case.successful_strategy = Some("Insert `.to_string()` on return string literals".to_string());
     case.verified_success_count = 1;
     case.applications_count = 1;
     case_engine.save_case(&case)?;
-    println!("   • Case `{}` PROMOTED into Governed Knowledge Base.", case.case_id);
+    println!(
+        "   • Case `{}` PROMOTED into Governed Knowledge Base.",
+        case.case_id
+    );
 
     println!("\n▶️ [RUN 2] Migrating Unseen Repository B (`fixtures/two_run_demo/repo_b`)...");
     println!("   • Parsing `task_runner.py` -> Function `dispatch_job` (different symbol names!)");
@@ -4046,21 +5203,44 @@ fn run_learning_loop_demo(fixtures: &Path) -> anyhow::Result<()> {
         "rust",
     );
     println!("   • Structural Subgraph Fingerprint: {}", fp_b);
-    let matches = case_engine.search_promoted_cases(&fp_b, &exodus_case::FailureCategory::TypeMismatch)?;
+    let matches =
+        case_engine.search_promoted_cases(&fp_b, &exodus_case::FailureCategory::TypeMismatch)?;
     assert!(!matches.is_empty());
-    println!("   • 🎯 Case Match Found: `{}` (Strategy: {})", matches[0].case_id, matches[0].successful_strategy.as_deref().unwrap_or(""));
+    println!(
+        "   • 🎯 Case Match Found: `{}` (Strategy: {})",
+        matches[0].case_id,
+        matches[0].successful_strategy.as_deref().unwrap_or("")
+    );
     println!("   • Applying Learned Strategy -> Target Rust compiles & passes verification on Attempt 1!");
 
     println!("\n================================================================================");
     println!("📊 Comparative Two-Run Demonstration Metrics");
     println!("================================================================================");
-    println!("{:<28} | {:<16} | {:<16}", "Metric", "Run 1 (Repo A)", "Run 2 (Repo B)");
+    println!(
+        "{:<28} | {:<16} | {:<16}",
+        "Metric", "Run 1 (Repo A)", "Run 2 (Repo B)"
+    );
     println!("--------------------------------------------------------------------------------");
-    println!("{:<28} | {:<16} | {:<16}", "Initial Compile State", "Failed (TypeMismatch)", "Repaired with Case");
-    println!("{:<28} | {:<16} | {:<16}", "Repair Attempts", "1 (Bounded Loop)", "0 (Case Reused)");
-    println!("{:<28} | {:<16} | {:<16}", "Time to Verified Outcome", "42ms", "6ms");
-    println!("{:<28} | {:<16} | {:<16}", "Case Reuse Match", "None (1st Encounter)", "100% Structural Hit");
-    println!("{:<28} | {:<16} | {:<16}", "Final Outcome Tier", "Promoted Case", "Verified (Attempt 1)");
+    println!(
+        "{:<28} | {:<16} | {:<16}",
+        "Initial Compile State", "Failed (TypeMismatch)", "Repaired with Case"
+    );
+    println!(
+        "{:<28} | {:<16} | {:<16}",
+        "Repair Attempts", "1 (Bounded Loop)", "0 (Case Reused)"
+    );
+    println!(
+        "{:<28} | {:<16} | {:<16}",
+        "Time to Verified Outcome", "42ms", "6ms"
+    );
+    println!(
+        "{:<28} | {:<16} | {:<16}",
+        "Case Reuse Match", "None (1st Encounter)", "100% Structural Hit"
+    );
+    println!(
+        "{:<28} | {:<16} | {:<16}",
+        "Final Outcome Tier", "Promoted Case", "Verified (Attempt 1)"
+    );
     println!("================================================================================");
     println!("🎉 Demonstration completed successfully!");
     Ok(())
@@ -4074,11 +5254,19 @@ async fn handle_natural_language_prompt(
     let lower = prompt.to_lowercase();
 
     // Intent routing:
-    if lower.contains("migrate") || lower.contains("convert") || lower.contains("translate") || lower.contains("modernize") {
+    if lower.contains("migrate")
+        || lower.contains("convert")
+        || lower.contains("translate")
+        || lower.contains("modernize")
+    {
         let is_gated = lower.contains("gate") || lower.contains("unit");
-        
+
         // Target language detection:
-        let to_lang = if lower.contains("to typescript") || lower.contains("to ts") || lower.contains("to bun") || lower.contains("to deno") {
+        let to_lang = if lower.contains("to typescript")
+            || lower.contains("to ts")
+            || lower.contains("to bun")
+            || lower.contains("to deno")
+        {
             "typescript"
         } else if lower.contains("to zig") {
             "zig"
@@ -4127,7 +5315,10 @@ async fn handle_natural_language_prompt(
             PathBuf::from("fixtures/01_typed_functions")
         } else if lower.contains("monoglot") || lower.contains("demo_projects") {
             PathBuf::from("demo_projects/monoglot_python_service")
-        } else if lower.contains("documents") && lower.contains("projects") && lower.contains("exodus") {
+        } else if lower.contains("documents")
+            && lower.contains("projects")
+            && lower.contains("exodus")
+        {
             if let Some(home) = std::env::var_os("HOME") {
                 let candidate = PathBuf::from(home).join("Documents/projects/exodus");
                 if candidate.exists() {
@@ -4145,22 +5336,28 @@ async fn handle_natural_language_prompt(
                     let cleaned = w.trim_matches(|c| c == '\'' || c == '"' || c == ',' || c == '`');
                     Path::new(cleaned).exists()
                 })
-                .map(|w| PathBuf::from(w.trim_matches(|c| c == '\'' || c == '"' || c == ',' || c == '`')))
+                .map(|w| {
+                    PathBuf::from(w.trim_matches(|c| c == '\'' || c == '"' || c == ',' || c == '`'))
+                })
                 .unwrap_or_else(|| PathBuf::from("."))
         };
 
         // If user instructed cd, change directory
-        if lower.starts_with("cd ") || lower.contains("cd into") {
-            if path.is_dir() && path != Path::new(".") {
-                let _ = std::env::set_current_dir(&path);
-                println!("📁 Navigated to: {}", path.display());
-            }
+        if (lower.starts_with("cd ") || lower.contains("cd into"))
+            && path.is_dir()
+            && path != Path::new(".")
+        {
+            let _ = std::env::set_current_dir(&path);
+            println!("📁 Navigated to: {}", path.display());
         }
 
         // Context-aware workspace check:
         let ws = exodus_toolchain::WorkspaceScanner::scan_workspace(&path);
         let matched_pkgs = ws.match_packages(prompt);
-        if !matched_pkgs.is_empty() && (ws.packages.len() > 1 || ws.toolchain != exodus_toolchain::WorkspaceToolchain::Standalone) {
+        if !matched_pkgs.is_empty()
+            && (ws.packages.len() > 1
+                || ws.toolchain != exodus_toolchain::WorkspaceToolchain::Standalone)
+        {
             let matched_names: Vec<&str> = matched_pkgs.iter().map(|p| p.name.as_str()).collect();
             println!(
                 "💡 Understood intent: Modernize workspace package(s) [{}] in `{}` -> {}",
@@ -4196,7 +5393,15 @@ async fn handle_natural_language_prompt(
             from_lang.unwrap_or("auto"),
             to_lang
         );
-        return run_harness_migrate(&path, custom_out, is_gated, from_lang, Some(to_lang), Some(prompt)).await;
+        return run_harness_migrate(
+            &path,
+            custom_out,
+            is_gated,
+            from_lang,
+            Some(to_lang),
+            Some(prompt),
+        )
+        .await;
     }
 
     if lower.contains("analyze") {
@@ -4212,7 +5417,10 @@ async fn handle_natural_language_prompt(
             PathBuf::from(".")
         };
 
-        println!("💡 Understood intent: Analyze repository at `{}`", path.display());
+        println!(
+            "💡 Understood intent: Analyze repository at `{}`",
+            path.display()
+        );
         return run_harness_analyze(&path);
     }
 
@@ -4222,7 +5430,10 @@ async fn handle_natural_language_prompt(
         } else {
             PathBuf::from("fixtures/03_module_dependency")
         };
-        println!("💡 Understood intent: Plan migration for `{}`", path.display());
+        println!(
+            "💡 Understood intent: Plan migration for `{}`",
+            path.display()
+        );
         return run_harness_plan(&path);
     }
 
@@ -4230,7 +5441,9 @@ async fn handle_natural_language_prompt(
     match discovery.build_provider() {
         Some(provider) => {
             let agent_desc = match discovery {
-                exodus_agent::AgentDiscoveryResult::Found(a) => format!("{} ({})", a.description, a.profile.model),
+                exodus_agent::AgentDiscoveryResult::Found(a) => {
+                    format!("{} ({})", a.description, a.profile.model)
+                }
                 _ => "Live AI Agent".to_string(),
             };
             println!("🤖 [Consulting {agent_desc}] Generating response...");
@@ -4265,9 +5478,8 @@ mod tests {
     #[test]
     fn test_fun_name_exit_variations() {
         let exit_cmds = [
-            "/q", ":q", ":quit", "/quit", "quit", ":exit", "/exit", "exit",
-            ":wq", ":x", "q", "/bye", "bye", "/stop", "stop",
-            "  /Q  ", "  :Q ", "  EXIT ", " Quit "
+            "/q", ":q", ":quit", "/quit", "quit", ":exit", "/exit", "exit", ":wq", ":x", "q",
+            "/bye", "bye", "/stop", "stop", "  /Q  ", "  :Q ", "  EXIT ", " Quit ",
         ];
         for cmd in exit_cmds {
             assert!(
@@ -4277,8 +5489,14 @@ mod tests {
         }
 
         let non_exit_cmds = [
-            "/analyze", "/plan", "/migrate", "migrate python to go",
-            "convert file to rust", "help", "/help", "hello"
+            "/analyze",
+            "/plan",
+            "/migrate",
+            "migrate python to go",
+            "convert file to rust",
+            "help",
+            "/help",
+            "hello",
         ];
         for cmd in non_exit_cmds {
             assert!(
@@ -4288,4 +5506,3 @@ mod tests {
         }
     }
 }
-

@@ -11,6 +11,9 @@ use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use uuid::Uuid;
 
+pub mod promoter;
+pub use promoter::*;
+
 /// Lifecycle state of a migration case.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CaseStatus {
@@ -288,6 +291,70 @@ impl CaseEngine {
 
         self.save_case(target)?;
         Ok(target.clone())
+    }
+
+    /// Generates a standalone reproducible regression fixture for a promoted case.
+    pub fn generate_regression_fixture(
+        &self,
+        case_id: &str,
+        output_dir: &std::path::Path,
+    ) -> Result<PathBuf> {
+        let cases = self.list_cases()?;
+        let case = cases
+            .iter()
+            .find(|c| c.case_id == case_id)
+            .ok_or_else(|| ExodusError::Generic(format!("Case `{case_id}` not found")))?;
+
+        let fixture_dir = output_dir.join(format!("regression_{}", case.case_id));
+        fs::create_dir_all(&fixture_dir).map_err(|e| {
+            ExodusError::Io(std::io::Error::new(
+                e.kind(),
+                format!("Failed to create regression fixture directory: {e}"),
+            ))
+        })?;
+
+        // 1. Write minimal source file
+        let ext = if case.source_language.to_lowercase().contains("python") {
+            "py"
+        } else if case.source_language.to_lowercase().contains("type")
+            || case.source_language.to_lowercase().contains("js")
+        {
+            "ts"
+        } else if case.source_language.to_lowercase().contains("go") {
+            "go"
+        } else {
+            "src"
+        };
+
+        let unit_name = case
+            .unit_id
+            .as_deref()
+            .unwrap_or("repro_unit")
+            .replace("::", "_");
+        let source_code = format!(
+            "# Regression fixture for case {}\n# Category: {:?}\n# Failure: {}\ndef {}():\n    pass\n",
+            case.case_id, case.failure_category, case.failure_description, unit_name
+        );
+        fs::write(fixture_dir.join(format!("source.{ext}")), source_code)
+            .map_err(ExodusError::Io)?;
+
+        // 2. Write metadata and contract manifest
+        let manifest = serde_json::json!({
+            "case_id": case.case_id,
+            "failure_category": case.failure_category,
+            "structural_fingerprint": case.structural_fingerprint,
+            "target_language": case.target_language,
+            "diagnostic": case.compiler_diagnostic,
+            "successful_strategy": case.successful_strategy,
+            "repair_patch": case.repair_patch,
+        });
+        fs::write(
+            fixture_dir.join("fixture_manifest.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .map_err(ExodusError::Io)?;
+
+        Ok(fixture_dir)
     }
 
     /// Rejects or deprecates a case.

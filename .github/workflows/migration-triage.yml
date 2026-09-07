@@ -37,6 +37,22 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Install Linux System Dependencies (Tauri / GTK / WebKit)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libglib2.0-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev || sudo apt-get install -y libwebkit2gtk-4.0-dev
+
+      - name: Configure Git Identity
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
       - name: Cache Cargo Dependencies
         uses: actions/cache@v4
         with:
@@ -51,7 +67,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Build Exodus CLI & Micro-Kernel
-        run: cargo build --release
+        run: cargo build --release --bin exodus
 
       - name: Run Full Workspace Tests & Grounded Verifiers
         run: cargo test --workspace

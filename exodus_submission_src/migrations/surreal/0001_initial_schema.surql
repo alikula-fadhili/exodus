@@ -1,0 +1,25 @@
+-- Migration 0001: Initial Graph and Snapshot Schema
+DEFINE TABLE OVERWRITE repository SCHEMAFULL;
+DEFINE FIELD OVERWRITE repo_id ON TABLE repository TYPE string;
+DEFINE FIELD OVERWRITE path ON TABLE repository TYPE string;
+DEFINE FIELD OVERWRITE created_at ON TABLE repository TYPE datetime;
+
+DEFINE TABLE OVERWRITE symbol SCHEMAFULL;
+DEFINE FIELD OVERWRITE symbol_id ON TABLE symbol TYPE string;
+DEFINE FIELD OVERWRITE name ON TABLE symbol TYPE string;
+DEFINE FIELD OVERWRITE kind ON TABLE symbol TYPE string;
+DEFINE FIELD OVERWRITE signature ON TABLE symbol TYPE option<string>;
+DEFINE FIELD OVERWRITE file_path ON TABLE symbol TYPE string;
+DEFINE FIELD OVERWRITE is_grounded ON TABLE symbol TYPE bool;
+
+DEFINE TABLE OVERWRITE graph_snapshot SCHEMAFULL;
+DEFINE FIELD OVERWRITE snapshot_id ON TABLE graph_snapshot TYPE string;
+DEFINE FIELD OVERWRITE node_count ON TABLE graph_snapshot TYPE int;
+DEFINE FIELD OVERWRITE edge_count ON TABLE graph_snapshot TYPE int;
+DEFINE FIELD OVERWRITE raw_json ON TABLE graph_snapshot TYPE string;
+DEFINE FIELD OVERWRITE created_at ON TABLE graph_snapshot TYPE datetime;
+
+DEFINE TABLE OVERWRITE calls SCHEMALESS;
+DEFINE TABLE OVERWRITE imports SCHEMALESS;
+DEFINE TABLE OVERWRITE inherits SCHEMALESS;
+DEFINE TABLE OVERWRITE contains SCHEMALESS;

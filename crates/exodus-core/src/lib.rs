@@ -1,15 +1,28 @@
 //! Core domain models, shared types, outcome classifications, and contracts for Project Exodus.
 
+pub mod esg;
+pub use esg::*;
+
+pub mod profile;
+pub use profile::*;
+
+pub mod deprecation;
+pub use deprecation::*;
+
+pub mod adapter;
+pub use adapter::*;
+
+pub mod operational_domain;
+pub use operational_domain::*;
+
+pub mod operational_item;
+pub use operational_item::*;
+
+pub mod sdlc_pipeline;
+pub use sdlc_pipeline::*;
+
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-
-/// Target and source programming languages supported by the migration engine.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Language {
-    Python,
-    Rust,
-    Custom(String),
-}
 
 /// The classification of a migration outcome for a symbol, unit, or codebase.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -288,8 +301,14 @@ pub enum ExodusError {
     PlanningError(String),
     #[error("Transformation error: {0}")]
     TransformationError(String),
+    #[error("Unsupported target language: {0}")]
+    UnsupportedTargetLanguage(String),
+    #[error("Target path collision: {0}")]
+    PathCollision(String),
     #[error("Verification failure: {0}")]
     VerificationFailure(String),
+    #[error("Operational error: {0}")]
+    OperationalError(String),
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
     #[error("JSON error: {0}")]
@@ -322,23 +341,29 @@ pub struct TriageBreakReport {
 impl TriageBreakReport {
     pub fn to_markdown_issue(&self) -> String {
         let mut md = String::new();
-        md.push_str(&format!("# [Migration Break] `{}` ({} -> {})\n\n", self.unit_id, self.source_language, self.target_language));
-        md.push_str(&format!("**Outcome Tier:** `{}` | **Category:** `{}` | **Timestamp:** `{}`\n\n", self.failure_tier, self.failure_category, self.timestamp));
-        
+        md.push_str(&format!(
+            "# [Migration Break] `{}` ({} -> {})\n\n",
+            self.unit_id, self.source_language, self.target_language
+        ));
+        md.push_str(&format!(
+            "**Outcome Tier:** `{}` | **Category:** `{}` | **Timestamp:** `{}`\n\n",
+            self.failure_tier, self.failure_category, self.timestamp
+        ));
+
         if let Some(ref fp) = self.structural_fingerprint {
             md.push_str(&format!("**Structural Fingerprint:** `{}`\n\n", fp));
         }
 
         md.push_str("## Source Snippet\n```");
         md.push_str(&self.source_language);
-        md.push_str("\n");
+        md.push('\n');
         md.push_str(&self.source_snippet);
         md.push_str("\n```\n\n");
 
         if let Some(ref target) = self.target_snippet {
             md.push_str("## Target Snippet (Failed)\n```");
             md.push_str(&self.target_language);
-            md.push_str("\n");
+            md.push('\n');
             md.push_str(target);
             md.push_str("\n```\n\n");
         }
@@ -346,7 +371,7 @@ impl TriageBreakReport {
         md.push_str("## Compiler & Test Diagnostics\n```text\n");
         for diag in &self.compiler_diagnostics {
             md.push_str(diag);
-            md.push_str("\n");
+            md.push('\n');
         }
         if let Some(ref fa) = self.failed_assertion {
             md.push_str(&format!("Failed Assertion: {}\n", fa));
@@ -356,17 +381,23 @@ impl TriageBreakReport {
         if !self.repair_attempts.is_empty() {
             md.push_str("## Repair Trajectory (Bounded Attempts)\n");
             for att in &self.repair_attempts {
-                md.push_str(&format!("* **Attempt {}**: {}\n", att.iteration, att.reason));
+                md.push_str(&format!(
+                    "* **Attempt {}**: {}\n",
+                    att.iteration, att.reason
+                ));
                 if let Some(ref diff) = att.patch_diff {
                     md.push_str(&format!("  ```diff\n{}\n  ```\n", diff));
                 }
             }
-            md.push_str("\n");
+            md.push('\n');
         }
 
         md.push_str("## Reproduction Payload\n");
         md.push_str("To reproduce locally in Project Exodus:\n");
-        md.push_str(&format!("```bash\nexodus migrate --from {} --to {} --gated\n```\n", self.source_language, self.target_language));
+        md.push_str(&format!(
+            "```bash\nexodus migrate --from {} --to {} --gated\n```\n",
+            self.source_language, self.target_language
+        ));
         md
     }
 }
@@ -651,7 +682,10 @@ mod tests {
                 outcome: MigrationOutcome::Blocked,
             }],
             structural_fingerprint: Some("fp-sha256-abc123".to_string()),
-            recommended_labels: vec!["bug:migration-break".to_string(), "lang:python-to-rust".to_string()],
+            recommended_labels: vec![
+                "bug:migration-break".to_string(),
+                "lang:python-to-rust".to_string(),
+            ],
         };
 
         let md = report.to_markdown_issue();
@@ -663,16 +697,28 @@ mod tests {
     #[test]
     fn test_modernization_presets_display() {
         assert_eq!(ModernizationPreset::Python2To3.to_string(), "python2-to-3");
-        assert_eq!(ModernizationPreset::CommonJsToEsm.to_string(), "commonjs-to-esm");
-        assert_eq!(ModernizationPreset::ExpressToFastifyOrHono.to_string(), "express-to-hono");
+        assert_eq!(
+            ModernizationPreset::CommonJsToEsm.to_string(),
+            "commonjs-to-esm"
+        );
+        assert_eq!(
+            ModernizationPreset::ExpressToFastifyOrHono.to_string(),
+            "express-to-hono"
+        );
     }
 
     #[test]
     fn test_sdlc_and_migration_mode_models() {
         assert_eq!(MigrationMode::default(), MigrationMode::Direct);
-        assert_eq!(MigrationMode::Direct.to_string(), "direct (reverse-engineering)");
+        assert_eq!(
+            MigrationMode::Direct.to_string(),
+            "direct (reverse-engineering)"
+        );
         assert_eq!(MigrationMode::Ai.to_string(), "ai (autonomous agent)");
-        assert_eq!(MigrationMode::Hybrid.to_string(), "hybrid (direct + gated ai repair)");
+        assert_eq!(
+            MigrationMode::Hybrid.to_string(),
+            "hybrid (direct + gated ai repair)"
+        );
 
         let thesis = ArchitectureThesis {
             thesis_id: "thesis-1".to_string(),
@@ -695,11 +741,105 @@ mod tests {
                 description: "Expose /healthz and /readyz".to_string(),
                 rationale: "Required for Kubernetes and cloud probes".to_string(),
                 impact_level: RiskLevel::Medium,
-                remediation_code_sample: Some("pub async fn healthz() -> &'static str { \"OK\" }".to_string()),
+                remediation_code_sample: Some(
+                    "pub async fn healthz() -> &'static str { \"OK\" }".to_string(),
+                ),
             }],
             architecture_thesis: Some(thesis),
         };
         assert_eq!(audit.health_score, 85);
         assert_eq!(audit.recommendations.len(), 1);
+    }
+
+    #[test]
+    fn test_language_id_and_esg_models() {
+        let py = LanguageId::new("python");
+        assert_eq!(py.as_str(), "python");
+        assert_eq!(py, " PYTHON ");
+        assert_eq!(py, String::from("Python"));
+        assert_eq!(py.as_ref(), "python");
+        assert_eq!(&*py, "python");
+        let borrowed: &str = std::borrow::Borrow::borrow(&py);
+        assert_eq!(borrowed, "python");
+        let ts = LanguageId::new("TypeScript");
+        assert_eq!(ts.as_str(), "typescript");
+
+        let node = EsgNode::new(
+            "urn:sym:pkg::ClassA",
+            py.clone(),
+            EsgNodeKind::Class,
+            "ClassA",
+        );
+        assert_eq!(node.grounding, GroundingTier::Deterministic);
+        assert!(node.grounding.is_grounded());
+
+        let edge = EsgEdge::new(
+            "urn:sym:pkg::ClassA",
+            "urn:sym:pkg::TraitB",
+            EsgRelation::Implements,
+        );
+        assert_eq!(edge.relation, EsgRelation::Implements);
+    }
+
+    #[test]
+    fn test_repository_and_deprecation_profiles() {
+        let prof = RepositoryProfile::new("repo-1", LanguageId::new("python"));
+        assert_eq!(prof.primary_language, LanguageId::new("python"));
+        assert_eq!(
+            uuid::Uuid::parse_str(&prof.snapshot_id)
+                .unwrap()
+                .get_version_num(),
+            7
+        );
+
+        let dep = DeprecationRecord::new(
+            "dep-1",
+            LanguageId::new("python"),
+            "os.popen",
+            DeprecationStatus::Deprecated,
+            DeprecationEvidenceSource::CompilerWarning,
+        );
+        assert_eq!(dep.status, DeprecationStatus::Deprecated);
+        assert!(dep.grounding.is_grounded());
+    }
+
+    #[tokio::test]
+    async fn test_adapter_registry_duplicate_rejection() {
+        struct DummySourceAdapter;
+        #[async_trait::async_trait]
+        impl SourceLanguageAdapter for DummySourceAdapter {
+            fn language_id(&self) -> LanguageId {
+                LanguageId::new("python")
+            }
+            fn supported_extensions(&self) -> &[&'static str] {
+                &["py"]
+            }
+            async fn parse_file(
+                &self,
+                _repo_root: &Path,
+                _rel_path: &Path,
+                _content: &str,
+            ) -> Result<(
+                Vec<EsgNode>,
+                Vec<EsgEdge>,
+                Vec<Diagnostic>,
+                Vec<DeprecationRecord>,
+            )> {
+                Ok((Vec::new(), Vec::new(), Vec::new(), Vec::new()))
+            }
+            async fn profile_repository(&self, _repo_root: &Path) -> Result<RepositoryProfile> {
+                Ok(RepositoryProfile::new("dummy", LanguageId::new("python")))
+            }
+        }
+
+        use std::path::Path;
+        let mut registry = LanguageAdapterRegistry::new();
+        let adapter = std::sync::Arc::new(DummySourceAdapter);
+        assert!(registry
+            .register_source_adapter(adapter.clone())
+            .await
+            .is_ok());
+        // Duplicate registration must fail
+        assert!(registry.register_source_adapter(adapter).await.is_err());
     }
 }

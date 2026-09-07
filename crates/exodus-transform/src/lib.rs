@@ -456,12 +456,29 @@ impl TransformationEngine {
 
         let body_code = Self::transform_body_code(&func.body_snippet, &ret_type, is_async);
 
+        let fb =
+            if body_code.contains("todo!(") || body_code.contains("DynamicReflectionUnsupported") {
+                Some(FallbackRecord {
+                    symbol_id: format!("function::{}", func.name),
+                    source_location: Some(func.evidence.span.clone()),
+                    construct: "dynamic_eval_reflection".to_string(),
+                    strategy: FallbackStrategy::TypedFailureStub,
+                    reason: "Dynamic eval reflection cannot be translated statically".to_string(),
+                    confidence: 0.0,
+                    verification_status: MigrationOutcome::Degraded,
+                    human_review_required: true,
+                    generated_code: body_code.clone(),
+                })
+            } else {
+                None
+            };
+
         let code = format!(
             "{doc}pub {async_prefix}fn {}({}){} {{\n{}}}\n",
             func.name, params_joined, ret_clause, body_code
         );
 
-        (code, None)
+        (code, fb)
     }
 
     /// Transforms a ClassDef to a Rust struct and impl block.
@@ -559,7 +576,8 @@ impl TransformationEngine {
         ));
 
         // Common imports
-        rust_source.push_str("#[allow(unused_imports)]\nuse std::collections::{HashMap, HashSet};\n");
+        rust_source
+            .push_str("#[allow(unused_imports)]\nuse std::collections::{HashMap, HashSet};\n");
         rust_source.push_str("#[allow(unused_imports)]\nuse serde::{Serialize, Deserialize};\n");
         rust_source.push_str("#[allow(unused_imports)]\nuse crate::*;\n\n");
 
@@ -805,8 +823,12 @@ class BankAccount:
 
         let result = engine.transform_module(&req).unwrap();
         assert!(result.rust_source.contains("pub struct BankAccount"));
-        assert!(result.rust_source.contains("pub fn deposit(&mut self, amount: i64) -> i64"));
-        assert!(result.rust_source.contains("pub fn withdraw(&mut self, amount: i64) -> i64"));
+        assert!(result
+            .rust_source
+            .contains("pub fn deposit(&mut self, amount: i64) -> i64"));
+        assert!(result
+            .rust_source
+            .contains("pub fn withdraw(&mut self, amount: i64) -> i64"));
         assert!(result.rust_source.contains("if self.balance >= amount {"));
         assert!(result.rust_source.contains("return -1;"));
         assert_eq!(result.outcome, MigrationOutcome::Verified);

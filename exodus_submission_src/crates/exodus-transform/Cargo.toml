@@ -1,0 +1,19 @@
+[package]
+name = "exodus-transform"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Deterministic Python-to-Rust transformation engine for Project Exodus"
+
+[dependencies]
+exodus-core.workspace = true
+exodus-parser.workspace = true
+exodus-fallback.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+regex.workspace = true

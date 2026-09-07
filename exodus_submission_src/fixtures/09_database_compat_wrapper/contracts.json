@@ -1,0 +1,21 @@
+[
+  {
+    "schema_version": "1.0.0",
+    "contract_id": "contract-class-repository-UserRepository",
+    "unit_id": "class::repository::UserRepository",
+    "unit_name": "UserRepository",
+    "unit_kind": "class",
+    "source_signature": "class UserRepository",
+    "target_signature": "struct UserRepository",
+    "assertions": [
+      {
+        "case_id": "find_user",
+        "input": "UserRepository::new(\"sqlite://test.db\".to_string()).find_user_by_id(42)",
+        "expected": "\"User_42\"",
+        "oracle": "differential_execution",
+        "evidence": "differential_execution: python3 scripts/ground_fixture_contracts.py (fixtures/09_database_compat_wrapper/repository.py)"
+      }
+    ],
+    "verification_status": "pending"
+  }
+]

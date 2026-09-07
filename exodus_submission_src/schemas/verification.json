@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Exodus Unit Verification Result Schema",
+  "description": "Records the outcome of running a single unit or dependency cluster through the per-unit migration gate (master prompt §11), as distinct from the behavioral contract it was checked against.",
+  "type": "object",
+  "required": ["schema_version", "verification_id", "unit_id", "boundary_kind", "compiled", "outcome", "verified_at"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "verification_id": { "type": "string" },
+    "unit_id": { "type": "string" },
+    "boundary_kind": {
+      "type": "string",
+      "enum": ["unit", "cluster"],
+      "description": "'unit' when the node verified independently; 'cluster' when a strongly-connected component had to be verified as a whole."
+    },
+    "cluster_members": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Present and non-empty only when boundary_kind is 'cluster'."
+    },
+    "contract_id": { "type": "string" },
+    "compiled": { "type": "boolean" },
+    "diagnostics_count": { "type": "integer", "minimum": 0 },
+    "assertions_total": { "type": "integer", "minimum": 0 },
+    "assertions_passed": { "type": "integer", "minimum": 0 },
+    "assertions_failed": { "type": "integer", "minimum": 0 },
+    "failed_assertion_case_id": { "type": ["string", "null"] },
+    "repair_attempts": { "type": "integer", "minimum": 0 },
+    "outcome": {
+      "type": "string",
+      "enum": ["verified", "compatible", "degraded", "blocked"]
+    },
+    "case_id": {
+      "type": ["string", "null"],
+      "description": "Migration Case ID captured on failure, if the gate created one."
+    },
+    "rustc_version": { "type": "string" },
+    "verified_at": { "type": "string", "format": "date-time" }
+  }
+}

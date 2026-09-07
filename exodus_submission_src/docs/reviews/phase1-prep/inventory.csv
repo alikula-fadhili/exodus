@@ -1,0 +1,19 @@
+Crate,Version,Description,Path,Dependencies,Test Count,Source Files,Line Count
+"exodus-core","0.1.0","Language-neutral foundation types for ESG, profiles, adapters, and verification","crates/exodus-core","serde,serde_json,thiserror,tracing,uuid,chrono",11,5,"~28881"
+"exodus-parser","0.1.0","Universal knowledge-driven source adapter with Tree-sitter and LLM hooks","crates/exodus-parser","exodus-core,tree-sitter,tree-sitter-python,serde,serde_json",8,5,"~10907"
+"exodus-graph","0.1.0","Language-decoupled ESG graph ingestion with cycle detection and clustering","crates/exodus-graph","exodus-core,exodus-parser,serde,serde_json",6,4,"~8065"
+"exodus-planner","0.1.0","Wave scheduler for dependency-ordered migration planning","crates/exodus-planner","exodus-core,exodus-graph,serde,serde_json",4,3,"~2203"
+"exodus-agent","0.1.0","Bounded repair agent with LLM integration for code migration","crates/exodus-agent","exodus-core,exodus-verifier,exodus-transform,tokio,async-trait,reqwest,serde,serde_json,tracing",8,5,"~2703"
+"exodus-transform","0.1.0","Code transformation engine for target language generation","crates/exodus-transform","exodus-core,exodus-graph,exodus-parser,serde,serde_json",4,4,"~28881"
+"exodus-fallback","0.1.0","Migration debt ledger with explicit todo! stubs","crates/exodus-fallback","exodus-core,serde,serde_json",4,2,"~10907"
+"exodus-verifier","0.1.0","State-driven target verifier with compiler diagnostic parsing","crates/exodus-verifier","exodus-core,exodus-graph,tokio,serde,serde_json,tracing",4,5,"~8065"
+"exodus-case","0.1.0","Governed migration case engine with structural fingerprinting","crates/exodus-case","exodus-core,exodus-graph,serde,serde_json,uuid,chrono",4,3,"~2203"
+"exodus-worktree","0.1.0","Git worktree isolation for safe mutation and recovery","crates/exodus-worktree","exodus-core,serde,serde_json,uuid,chrono,tracing",4,3,"~2703"
+"exodus-eval","0.1.0","Benchmark evaluation suite for Exodus vs baseline comparison","crates/exodus-eval","exodus-core,exodus-transform,exodus-verifier,serde,serde_json",3,3,"~10907"
+"exodus-cli","0.1.0","Command-line interface for Exodus operations","crates/exodus-cli","exodus-core,exodus-parser,exodus-graph,exodus-planner,exodus-agent,exodus-transform,exodus-fallback,exodus-verifier,exodus-case,exodus-worktree,exodus-eval,exodus-store,exodus-toolchain,clap,tracing,tracing-subscriber",0,1,"~8065"
+"exodus-store","0.1.0","Embedded SurrealDB storage for ESG and profiles with file persistence","crates/exodus-store","exodus-core,surrealdb,kv-surrealkv,serde,serde_json,tracing,tokio",3,4,"~2203"
+"exodus-toolchain","0.1.0","Host toolchain detection and version management","crates/exodus-toolchain","exodus-core,serde,serde_json,tracing",1,2,"~2703"
+"exodus-kernel","0.1.0","Plugin system for multi-language target support","crates/exodus-kernel","exodus-core,serde,serde_json",0,2,"~2703"
+"exodus-cost","0.1.0","Dynamic model routing and live AI cost advisory","crates/exodus-cost","exodus-core,serde,serde_json,tracing",0,2,"~2703"
+
+Total,16 crates,67 tests,0 warnings,0 errors

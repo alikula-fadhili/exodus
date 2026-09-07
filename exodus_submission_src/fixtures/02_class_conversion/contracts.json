@@ -1,0 +1,35 @@
+[
+  {
+    "schema_version": "1.0.0",
+    "contract_id": "contract-method-bank_account-BankAccount-__init___method-bank_account-BankAccount-deposit_method-bank_account-BankAccount-withdraw_type-bank_account-BankAccount",
+    "unit_id": "method::bank_account::BankAccount::__init__+method::bank_account::BankAccount::deposit+method::bank_account::BankAccount::withdraw+type::bank_account::BankAccount",
+    "unit_name": "BankAccount",
+    "unit_kind": "class",
+    "source_signature": "BankAccount(owner: str, balance: int = 0); deposit(amount)->int; withdraw(amount)->int",
+    "target_signature": "struct BankAccount { owner: String, balance: i64 }; fn deposit(&mut self, amount: i64) -> i64; fn withdraw(&mut self, amount: i64) -> i64",
+    "assertions": [
+      {
+        "case_id": "deposit_basic",
+        "input": "{ let mut acc = BankAccount::new(\"alice\".to_string(), 100); acc.deposit(50) }",
+        "expected": "150",
+        "oracle": "differential_execution",
+        "evidence": "differential_execution: python3 scripts/ground_fixture_contracts.py (fixtures/02_class_conversion/bank_account.py, captured 2026-08-29)"
+      },
+      {
+        "case_id": "withdraw_sufficient",
+        "input": "{ let mut acc = BankAccount::new(\"bob\".to_string(), 100); acc.withdraw(30) }",
+        "expected": "70",
+        "oracle": "differential_execution",
+        "evidence": "differential_execution: python3 scripts/ground_fixture_contracts.py (fixtures/02_class_conversion/bank_account.py, captured 2026-08-29)"
+      },
+      {
+        "case_id": "withdraw_insufficient_funds",
+        "input": "{ let mut acc = BankAccount::new(\"carol\".to_string(), 100); acc.withdraw(1000) }",
+        "expected": "-1",
+        "oracle": "differential_execution",
+        "evidence": "differential_execution: python3 scripts/ground_fixture_contracts.py (fixtures/02_class_conversion/bank_account.py, captured 2026-08-29)"
+      }
+    ],
+    "verification_status": "pending"
+  }
+]

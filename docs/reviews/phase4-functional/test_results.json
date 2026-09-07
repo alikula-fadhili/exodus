@@ -1,0 +1,149 @@
+{
+  "phase": "Phase 4: Functional & Integration Review",
+  "timestamp": "2026-09-07T23:04:00Z",
+  "environment": {
+    "rustc": "1.98.0",
+    "cargo": "1.98.0",
+    "os": "Linux 6.6.137+ x86_64",
+    "host": "local-sandbox"
+  },
+  "summary": {
+    "total_crates_evaluated": 16,
+    "total_tests_executed": 108,
+    "total_passed": 108,
+    "total_failed": 0,
+    "total_ignored": 0,
+    "overall_status": "PASSED",
+    "evidence_mode": "Strict Metric Honesty (Subprocess Execution)"
+  },
+  "crate_results": [
+    {
+      "crate": "exodus-core",
+      "test_type": "unit",
+      "passed": 13,
+      "failed": 0,
+      "status": "PASSED",
+      "focus": "Lifecycle state machine, grounded oracles, domain payloads, language IDs"
+    },
+    {
+      "crate": "exodus-parser",
+      "test_type": "unit",
+      "passed": 8,
+      "failed": 0,
+      "status": "PASSED",
+      "focus": "Tree-sitter AST traversal, multi-evidence sense orchestrator, universal adapters"
+    },
+    {
+      "crate": "exodus-graph",
+      "test_type": "unit",
+      "passed": 7,
+      "failed": 0,
+      "status": "PASSED",
+      "focus": "ESG representation, Tarjan SCC cycle detection, FAS cycle breaking, topological wave sort"
+    },
+    {
+      "crate": "exodus-planner",
+      "test_type": "unit",
+      "passed": 3,
+      "failed": 0,
+      "status": "PASSED",
+      "focus": "Wave scheduling, risk scoring, cycle human approval checkpoints"
+    },
+    {
+      "crate": "exodus-agent",
+      "test_type": "unit",
+      "passed": 8,
+      "failed": 0,
+      "status": "PASSED",
+      "focus": "Bounded repair loop (<= 3 iterations), secret scrubbing, ABAC policy guard, discovery"
+    },
+    {
+      "crate": "exodus-transform",
+      "test_type": "unit",
+      "passed": 5,
+      "failed": 0,
+      "status": "PASSED",
+      "focus": "Type mapping, receiver mutability inference, f-string translation, AST code generation"
+    },
+    {
+      "crate": "exodus-fallback",
+      "test_type": "unit",
+      "passed": 1,
+      "failed": 0,
+      "status": "PASSED",
+      "focus": "Explicit todo! stub generation, MigrationDebt emission"
+    },
+    {
+      "crate": "exodus-verifier",
+      "test_type": "unit + integration",
+      "passed": 17,
+      "failed": 0,
+      "status": "PASSED",
+      "focus": "Multi-domain verifiers (CRM, ProdBug, Survey), gate integration worktrees, ts-to-go"
+    },
+    {
+      "crate": "exodus-case",
+      "test_type": "unit",
+      "passed": 5,
+      "failed": 0,
+      "status": "PASSED",
+      "focus": "Structural fingerprinting (symbol-agnostic), case promotion, fixture regression capture"
+    },
+    {
+      "crate": "exodus-worktree",
+      "test_type": "unit",
+      "passed": 4,
+      "failed": 0,
+      "status": "PASSED",
+      "focus": "Git worktree lease isolation, atomic commits, dirty worktree protection"
+    },
+    {
+      "crate": "exodus-eval",
+      "test_type": "unit + benchmark",
+      "passed": 4,
+      "failed": 0,
+      "status": "PASSED",
+      "focus": "Two-run learning experiment, benchmark scorecards, frontier evaluation"
+    },
+    {
+      "crate": "exodus-store",
+      "test_type": "unit + integration",
+      "passed": 18,
+      "failed": 0,
+      "status": "PASSED",
+      "focus": "Embedded SurrealDB, file persistence durability, skills discovery, dynamic roles"
+    },
+    {
+      "crate": "exodus-toolchain",
+      "test_type": "unit",
+      "passed": 11,
+      "failed": 0,
+      "status": "PASSED",
+      "focus": "Workspace scanner, toolchain probes, target strategy resolution"
+    },
+    {
+      "crate": "exodus-kernel",
+      "test_type": "unit",
+      "passed": 8,
+      "failed": 0,
+      "status": "PASSED",
+      "focus": "Plugin lifecycle, maker policy guards, worker pool concurrency, event ledger"
+    },
+    {
+      "crate": "exodus-cost",
+      "test_type": "unit",
+      "passed": 3,
+      "failed": 0,
+      "status": "PASSED",
+      "focus": "Budget guard, cost estimator, interruption checkpoints"
+    },
+    {
+      "crate": "exodus-cli",
+      "test_type": "unit + hitl",
+      "passed": 2,
+      "failed": 0,
+      "status": "PASSED",
+      "focus": "Axum web router, HITL gate endpoints, CLI command dispatch"
+    }
+  ]
+}

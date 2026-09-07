@@ -1,0 +1,21 @@
+[
+  {
+    "schema_version": "1.0.0",
+    "contract_id": "contract-function-cached_service-compute_heavy_metric",
+    "unit_id": "function::cached_service::compute_heavy_metric",
+    "unit_name": "compute_heavy_metric",
+    "unit_kind": "function",
+    "source_signature": "compute_heavy_metric(base: int, multiplier: int) -> int",
+    "target_signature": "compute_heavy_metric(base: i64, multiplier: i64) -> i64",
+    "assertions": [
+      {
+        "case_id": "basic_metric",
+        "input": "compute_heavy_metric(5, 3)",
+        "expected": "15",
+        "oracle": "differential_execution",
+        "evidence": "differential_execution: python3 scripts/ground_fixture_contracts.py (fixtures/05_unsupported_decorator/cached_service.py)"
+      }
+    ],
+    "verification_status": "pending"
+  }
+]

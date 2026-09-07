@@ -16,25 +16,68 @@ Exodus is architected as a modular Rust workspace divided into decoupled pipelin
 
 ```text
 crates/
-├── exodus-core/       # Domain primitives, outcome types, errors
-├── exodus-parser/     # Tree-sitter frontend abstractions
+├── exodus-core/       # Domain primitives, outcome types, errors, OperationalItem
+├── exodus-parser/     # Tree-sitter frontend abstractions & multi-evidence sensing
 ├── exodus-graph/      # Exodus Semantic Graph (ESG) structures and algorithms
 ├── exodus-planner/    # Topological wave planner and risk evaluation
-├── exodus-agent/      # Bounded agent orchestration and prompt harnesses
+├── exodus-agent/      # Bounded agent orchestration and prompt harnesses (<= 3 repair iterations)
 ├── exodus-transform/  # Semantic code generation and AST transformation
 ├── exodus-fallback/   # Fallback stub generation and debt emission
 ├── exodus-verifier/   # Compiler, linter, and test verification runners
+├── exodus-store/      # Embedded SurrealDB persistence and ACID operational store
+├── exodus-kernel/     # Plugin lifecycle and maker-defined policy execution engine
+├── exodus-cost/       # Token usage telemetry and migration cost advisory
 ├── exodus-eval/       # Outcome metrics and benchmark aggregation
-└── exodus-cli/        # Main CLI entry point
+├── exodus-cli/        # Main CLI entry point and embedded Axum web server
+└── exodus-desktop/    # Native Tauri v2 desktop Mission Control & Board
 ```
 
-## Data Flow
+## Data Flow & Migration Lifecycle
+
+```text
+Evidence Sources (Code, Bash, Containers, CI, Terraform, Docs)
+   │
+   ▼ [Sense Phase: SenseOrchestrator & Multi-Evidence Adapters]
+MigrationIntentGraph (Sensed Claims, Contradictions, Traceability)
+   │
+   ▼ [Human Approval Gate: Terminal Interactive Review / Plan Checkpoints]
+MigrationIntentContract (Approved Architectural Decisions & Rules)
+   │
+   ▼ [exodus-parser & exodus-graph]
+Exodus Semantic Graph (ESG)
+   │
+   ▼ [exodus-planner (with Intent & TargetPathPlan & ConcurrencyPlan)]
+Migration Plan (Waves, Risk, Approval Checkpoints, Traceability Manifest)
+   │
+   ▼ [exodus-transform & exodus-fallback & Dynamic Target Language Registry]
+Target Source Code + Fallback Stubs (TypeScript -> Go, Python -> Rust, etc.)
+   │
+   ▼ [exodus-verifier (UniversalTargetVerifier) <-> exodus-agent (Bounded Repair <= 3)]
+Verified Target Workspace & Metric Scorecards
+   │
+   ▼ [exodus-eval & exodus-store (Embedded SurrealKV v5)]
+Outcome Classification & Durable State Persistence (.exodus/data/surreal/)
 ```
-Legacy Code -> [exodus-parser] -> AST
-AST -> [exodus-graph] -> ESG (Exodus Semantic Graph)
-ESG -> [exodus-planner] -> Migration Plan (Waves)
-Plan -> [Human Review Gate] -> Approved Waves
-Approved Waves -> [exodus-transform] & [exodus-fallback] -> Target Code + Debt
-Target Code -> [exodus-verifier] <-> [exodus-agent (Repair)] -> Verified Code
-Outcomes -> [exodus-eval] -> Final Report & Evidence (.exodus/)
-```
+
+## Core Architectural Subsystems
+
+1. **Universal Polyglot Foundation (`exodus-core`)**:
+   - Universal string-backed `LanguageId` with normalization and transparent string comparison traits.
+   - Dynamic `TargetLanguageSpecRecord` storing signature transformation rules, manifest templates, and toolchain configurations in embedded SurrealKV.
+   - Time-ordered UUIDv7 identifiers across entities.
+
+2. **Sense & Repository-Wide Migration Intent (`exodus-parser::sense`)**:
+   - Multi-evidence extraction: `TextFirstSegmenter`, `BashEvidenceAdapter`, `ContainerEvidenceAdapter`, `WorkflowEvidenceAdapter`, `TerraformEvidenceAdapter`, and `DocumentationEvidenceAdapter`.
+   - `SenseOrchestrator` reconciles cross-source claims and surfaces architectural contradictions.
+   - `SecretScrubber` redacts tokens, credentials, and private keys prior to hashing or prompt generation.
+
+3. **Agent-Led Interactive Review Gate (`exodus-agent`, `exodus-cli`)**:
+   - Terminal interactive review cards for critical and contradictory claims.
+   - Strict TTY gating (`std::io::stdin().is_terminal()`), alternative branching, explicit refusal to treat empty `<Enter>` as consent.
+   - Non-interactive batch execution writes pending decisions to `.exodus/plan.json` and marks affected units as `Blocked`.
+
+4. **Planning & Verifier Pipeline (`exodus-planner`, `exodus-verifier`)**:
+   - `TargetPathPlan` enforcing output root preservation and duplicate/directory collision detection.
+   - `ConcurrencyMappingPlan` mapping runtime primitives (e.g., `Promise.all` -> `golang.org/x/sync/errgroup`).
+   - `UniversalTargetVerifier` supporting multi-target toolchains (Rust `cargo`, Go `gofmt`/`go test`, etc.) with strict metric honesty.
+

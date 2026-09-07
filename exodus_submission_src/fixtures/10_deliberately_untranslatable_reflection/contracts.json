@@ -1,0 +1,21 @@
+[
+  {
+    "schema_version": "1.0.0",
+    "contract_id": "contract-function-dynamic_runtime-evaluate_runtime_code",
+    "unit_id": "function::dynamic_runtime::evaluate_runtime_code",
+    "unit_name": "evaluate_runtime_code",
+    "unit_kind": "function",
+    "source_signature": "evaluate_runtime_code(expr_str: str) -> int",
+    "target_signature": "evaluate_runtime_code(expr_str: String) -> i64",
+    "assertions": [
+      {
+        "case_id": "eval_addition",
+        "input": "evaluate_runtime_code(\"2 + 2\".to_string())",
+        "expected": "4",
+        "oracle": "differential_execution",
+        "evidence": "differential_execution: python3 scripts/ground_fixture_contracts.py (fixtures/10_deliberately_untranslatable_reflection/dynamic_runtime.py)"
+      }
+    ],
+    "verification_status": "pending"
+  }
+]

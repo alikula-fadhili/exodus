@@ -1,0 +1,28 @@
+[
+  {
+    "schema_version": "1.0.0",
+    "contract_id": "contract-function-payload_parser-process_dynamic_payload",
+    "unit_id": "function::payload_parser::process_dynamic_payload",
+    "unit_name": "process_dynamic_payload",
+    "unit_kind": "function",
+    "source_signature": "process_dynamic_payload(payload: dict) -> int",
+    "target_signature": "process_dynamic_payload(payload: &std::collections::HashMap<String, String>) -> i64",
+    "assertions": [
+      {
+        "case_id": "status_present",
+        "input": "process_dynamic_payload(&[(\"status\".to_string(), \"ok\".to_string())].into_iter().collect())",
+        "expected": "200",
+        "oracle": "differential_execution",
+        "evidence": "differential_execution: python3 scripts/ground_fixture_contracts.py (fixtures/06_dynamic_value/payload_parser.py)"
+      },
+      {
+        "case_id": "status_absent",
+        "input": "process_dynamic_payload(&std::collections::HashMap::new())",
+        "expected": "400",
+        "oracle": "differential_execution",
+        "evidence": "differential_execution: python3 scripts/ground_fixture_contracts.py (fixtures/06_dynamic_value/payload_parser.py)"
+      }
+    ],
+    "verification_status": "pending"
+  }
+]

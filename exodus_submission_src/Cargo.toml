@@ -1,0 +1,66 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/exodus-core",
+    "crates/exodus-parser",
+    "crates/exodus-graph",
+    "crates/exodus-planner",
+    "crates/exodus-agent",
+    "crates/exodus-transform",
+    "crates/exodus-fallback",
+    "crates/exodus-verifier",
+    "crates/exodus-case",
+    "crates/exodus-worktree",
+    "crates/exodus-eval",
+    "crates/exodus-kernel",
+    "crates/exodus-cost",
+    "crates/exodus-store",
+    "crates/exodus-toolchain",
+    "crates/exodus-cli",
+]
+exclude = [
+    "target",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Exodus Contributors"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/exodus-migration/exodus"
+homepage = "https://github.com/exodus-migration/exodus"
+readme = "README.md"
+
+[workspace.dependencies]
+exodus-core = { path = "crates/exodus-core", version = "0.1.0" }
+exodus-parser = { path = "crates/exodus-parser", version = "0.1.0" }
+exodus-graph = { path = "crates/exodus-graph", version = "0.1.0" }
+exodus-planner = { path = "crates/exodus-planner", version = "0.1.0" }
+exodus-agent = { path = "crates/exodus-agent", version = "0.1.0" }
+exodus-transform = { path = "crates/exodus-transform", version = "0.1.0" }
+exodus-fallback = { path = "crates/exodus-fallback", version = "0.1.0" }
+exodus-verifier = { path = "crates/exodus-verifier", version = "0.1.0" }
+exodus-store = { path = "crates/exodus-store", version = "0.1.0" }
+exodus-toolchain = { path = "crates/exodus-toolchain", version = "0.1.0" }
+exodus-case = { path = "crates/exodus-case", version = "0.1.0" }
+exodus-worktree = { path = "crates/exodus-worktree", version = "0.1.0" }
+exodus-eval = { path = "crates/exodus-eval", version = "0.1.0" }
+exodus-kernel = { path = "crates/exodus-kernel", version = "0.1.0" }
+exodus-cost = { path = "crates/exodus-cost", version = "0.1.0" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4.5", features = ["derive"] }
+tokio = { version = "1.40", features = ["full"] }
+tokio-util = { version = "0.7" }
+tree-sitter = "0.25"
+tree-sitter-python = "0.25"
+uuid = { version = "1.10", features = ["v4", "v7", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+regex = "1.10"
+async-trait = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+surrealdb = { version = "2.2.1", default-features = false, features = ["kv-mem", "kv-surrealkv"] }

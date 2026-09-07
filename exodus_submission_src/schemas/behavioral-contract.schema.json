@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Exodus Behavioral Contract Schema",
+  "type": "object",
+  "required": ["schema_version", "contract_id", "unit_id", "unit_name", "unit_kind", "assertions", "verification_status"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "contract_id": { "type": "string" },
+    "unit_id": { "type": "string" },
+    "unit_name": { "type": "string" },
+    "unit_kind": { "type": "string" },
+    "source_signature": { "type": "string" },
+    "target_signature": { "type": "string" },
+    "assertions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["case_id", "input", "expected", "oracle", "evidence"],
+        "properties": {
+          "case_id": { "type": "string" },
+          "input": { "type": "string" },
+          "expected": { "type": "string" },
+          "oracle": {
+            "type": "string",
+            "enum": [
+              "source_test",
+              "golden_fixture",
+              "differential_execution",
+              "declared_invariant",
+              "type_signature",
+              "human_approved_synthesized"
+            ],
+            "description": "Provenance strength order per the master spec; 'type_signature' alone is never sufficient grounding for 'expected'."
+          },
+          "evidence": { "type": "string", "minLength": 1, "description": "Repo path/URI, captured differential-run artifact path, or human approver identity." }
+        }
+      }
+    },
+    "verification_status": { "type": "string", "enum": ["passed", "failed", "pending", "degraded", "blocked"] }
+  }
+}

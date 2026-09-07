@@ -1,0 +1,761 @@
+{
+  "root": "openwiki",
+  "generatedAt": "2026-08-29T10:13:44.370Z",
+  "types": [
+    "architecture",
+    "component",
+    "data-model",
+    "decision",
+    "evaluation",
+    "invariant",
+    "overview",
+    "reference",
+    "security",
+    "workflow"
+  ],
+  "nodes": [
+    {
+      "id": "agent-boundaries",
+      "title": "Agent Boundaries",
+      "type": "invariant",
+      "description": "",
+      "tags": [],
+      "body": "\n# Agent Boundaries\n\n[Index](index.md) | [Transformation Engine](transformation-engine.md) | [Fallback and Repair Layer](fallback-and-repair-layer.md)\n\nAgentic assistants operate within strict, bounded parameters to prevent runaway token expenditure or uncontrolled modifications:\n\n## Invariants\n1. **Bounded Iterations**: Max 3 repair attempts per failing symbol before falling back to `Degraded` status.\n2. **Context Sandboxing**: Prompts receive strictly bounded AST slices, symbol definitions, and compiler error snippets.\n3. **Structured JSON I/O**: Agents communicate via typed schemas, not unstructured free-form text.\n4. **Deterministic Gatekeepers**: LLM proposals must pass through rustfmt and rustc validation before acceptance.\n",
+      "size": 740,
+      "links": [
+        "index",
+        "transformation-engine",
+        "fallback-and-repair-layer"
+      ],
+      "backlinks": [
+        "human-approval-model",
+        "index",
+        "security-boundaries"
+      ]
+    },
+    {
+      "id": "architectural-decisions",
+      "title": "Architectural Decisions",
+      "type": "decision",
+      "description": "",
+      "tags": [],
+      "body": "\n# Architectural Decisions\n\n[Index](index.md) | [System Architecture](system-architecture.md) | [Project Overview](project-overview.md)\n\nKey Architectural Decision Records (ADRs) established for Project Exodus:\n\n* **ADR-001: Rust as Core Implementation Language**: Chosen for memory safety, performance, zero-cost abstractions, and robust compiler diagnostics.\n* **ADR-002: MVP Demonstration Lane**: Python 3.11 source to Rust 2021 target.\n* **ADR-003: Source Parsing with Tree-Sitter**: Fast, error-tolerant incremental parsing with concrete syntax trees.\n* **ADR-004: In-Memory Owned Semantic Graph**: High-speed traversal and deterministic topological ordering.\n* **ADR-005: Portable JSON Artifact Storage**: `.exodus/` stores inspectable and machine-readable evidence files.\n* **ADR-006: OpenWiki with OKF v0.2**: Separation of program semantics (ESG) from documentation knowledge graph.\n",
+      "size": 892,
+      "links": [
+        "index",
+        "system-architecture",
+        "project-overview"
+      ],
+      "backlinks": [
+        "index",
+        "project-overview"
+      ]
+    },
+    {
+      "id": "artifact-schemas",
+      "title": "Artifact Schemas",
+      "type": "reference",
+      "description": "",
+      "tags": [],
+      "body": "\n# Artifact Schemas\n\n[Index](index.md) | [CLI Reference](cli-reference.md) | [Reproduction Guide](reproduction-guide.md)\n\nProject Exodus records execution evidence and state under `.exodus/`:\n\n## Standard Artifacts\n* `.exodus/graph.json`: Serialized ESG with nodes, edges, and risk metadata.\n* `.exodus/plan.json`: Topological waves, step dependencies, and approval states.\n* `.exodus/debt.json`: List of recorded `MigrationDebt` items with symbol IDs and reasons.\n* `.exodus/report.json`: Aggregate metrics (`Verified`, `Compatible`, `Degraded`, `Blocked`).\n",
+      "size": 559,
+      "links": [
+        "index",
+        "cli-reference",
+        "reproduction-guide"
+      ],
+      "backlinks": [
+        "cli-reference",
+        "evaluation-methodology",
+        "index",
+        "reproduction-guide"
+      ]
+    },
+    {
+      "id": "cli-reference",
+      "title": "CLI Reference",
+      "type": "reference",
+      "description": "",
+      "tags": [],
+      "body": "\n# CLI Reference\n\n[Index](index.md) | [Reproduction Guide](reproduction-guide.md) | [Artifact Schemas](artifact-schemas.md)\n\nThe `exodus` command-line binary provides full workflow control:\n\n## Commands\n* `exodus parse --path <dir>`: Parses legacy repository into AST symbols.\n* `exodus graph --path <dir>`: Constructs the Exodus Semantic Graph.\n* `exodus plan --path <dir>`: Generates wave-based migration schedule into `.exodus/plan.json`.\n* `exodus migrate --plan <path>`: Executes approved migration plan.\n* `exodus verify --target <dir>`: Runs formatters, compilers, and tests on migrated code.\n* `exodus report --evidence <dir>`: Outputs comprehensive outcome metrics and debt summaries.\n",
+      "size": 694,
+      "links": [
+        "index",
+        "reproduction-guide",
+        "artifact-schemas"
+      ],
+      "backlinks": [
+        "artifact-schemas",
+        "index",
+        "reproduction-guide"
+      ]
+    },
+    {
+      "id": "evaluation-methodology",
+      "title": "Evaluation Methodology",
+      "type": "evaluation",
+      "description": "",
+      "tags": [],
+      "body": "\n# Evaluation Methodology\n\n[Index](index.md) | [Verification Lifecycle](verification-lifecycle.md) | [Artifact Schemas](artifact-schemas.md)\n\nExodus benchmarks modernization success on verifiable outcomes rather than raw lines of translated text:\n\n## Evaluation Metrics\n* **Verification Rate**: Percentage of symbols achieving `Verified` status (compilation + behavioral tests pass).\n* **Compatibility Rate**: Percentage of symbols compiling cleanly without stubs (`Compatible`).\n* **Degradation Ratio**: Explicit `MigrationDebt` instances vs total transformed symbols.\n* **Blocker Ratio**: Symbols requiring manual human engineering (`Blocked`).\n* **Bounded Repair Efficiency**: Success rate of agentic repair loops within the 3-iteration bound.\n",
+      "size": 747,
+      "links": [
+        "index",
+        "verification-lifecycle",
+        "artifact-schemas"
+      ],
+      "backlinks": [
+        "index",
+        "known-limitations",
+        "verification-lifecycle"
+      ]
+    },
+    {
+      "id": "fallback-and-repair-layer",
+      "title": "Fallback and Repair Layer",
+      "type": "component",
+      "description": "",
+      "tags": [],
+      "body": "\n# Fallback and Repair Layer\n\n[Index](index.md) | [Transformation Engine](transformation-engine.md) | [Verification Lifecycle](verification-lifecycle.md)\n\nWhen automated or agentic transformation cannot resolve complex or unsupported semantics, `exodus-fallback` activates.\n\n## Principles\n1. **Explicit Debt**: Never silently omit unsupported code. Insert `todo!(\"Exodus Migration Debt: ...\")` stubs.\n2. **Reviewable Annotations**: Attach attributes/comments indicating origin file, symbol name, and unresolved dependency.\n3. **Outcome Demotion**: Downgrade the symbol outcome classification to `Degraded` and log entry in `.exodus/debt.json`.\n4. **Compile-Ready Interfaces**: Ensure surrounding signatures compile so dependent waves are unblocked.\n",
+      "size": 749,
+      "links": [
+        "index",
+        "transformation-engine",
+        "verification-lifecycle"
+      ],
+      "backlinks": [
+        "agent-boundaries",
+        "index",
+        "known-limitations",
+        "transformation-engine"
+      ]
+    },
+    {
+      "id": "glossary",
+      "title": "Glossary",
+      "type": "reference",
+      "description": "",
+      "tags": [],
+      "body": "\n# Glossary\n\n[Index](index.md) | [Project Overview](project-overview.md) | [Semantic Graph Specification](semantic-graph-specification.md)\n\n* **ESG (Exodus Semantic Graph)**: The language-neutral graph representation of legacy code symbols, dependencies, and risk metrics.\n* **OKF (Open Knowledge Format)**: Standardized schema (v0.2) for repository knowledge graphs and concept documentation.\n* **Migration Debt**: Explicit, reviewable stubs (`todo!`) and annotations emitted when automated conversion cannot resolve a construct.\n* **Verified Outcome**: Migration outcome where target code compiles and passes behavioral equivalence test contracts.\n* **Degraded Outcome**: Migration outcome where target code compiles by utilizing explicit fallback stubs.\n* **Blocked Outcome**: Migration outcome requiring human engineering intervention due to unsolvable semantics.\n",
+      "size": 868,
+      "links": [
+        "index",
+        "project-overview",
+        "semantic-graph-specification"
+      ],
+      "backlinks": [
+        "index"
+      ]
+    },
+    {
+      "id": "graph-algorithms",
+      "title": "Graph Algorithms",
+      "type": "component",
+      "description": "",
+      "tags": [],
+      "body": "\n# Graph Algorithms\n\n[Index](index.md) | [Semantic Graph Specification](semantic-graph-specification.md) | [Migration Planner](migration-planner.md)\n\n`exodus-graph` implements deterministic graph algorithms:\n\n## 1. Cycle Detection & Breaking\n* **Tarjan's SCC Algorithm**: Identify strongly connected components.\n* **Feedback Arc Set**: Compute minimal edge cuts to break mutual recursion or circular imports, converting cycle edges into dynamic interface boundaries or trait pointers.\n\n## 2. Topological Sorting\n* **Kahn's Algorithm**: Order DAG components into sequential migration layers (leaves first).\n\n## 3. Risk Weighting\n* **Composite Risk Metric**: Combines fan-in, fan-out, cyclomatic complexity, dynamic reflection usage, and external library surface area into a 1-100 risk score per symbol.\n",
+      "size": 802,
+      "links": [
+        "index",
+        "semantic-graph-specification",
+        "migration-planner"
+      ],
+      "backlinks": [
+        "index",
+        "migration-planner",
+        "semantic-graph-specification"
+      ]
+    },
+    {
+      "id": "human-approval-model",
+      "title": "Human Approval Model",
+      "type": "invariant",
+      "description": "",
+      "tags": [],
+      "body": "\n# Human Approval Model\n\n[Index](index.md) | [Migration Planner](migration-planner.md) | [Agent Boundaries](agent-boundaries.md)\n\nHuman oversight is a non-negotiable invariant in the Exodus migration engine.\n\n## Checkpoints\n* **Plan Approval**: Reviewing topological waves, high-risk symbols, and cycle breaking before any files are modified.\n* **Fallback Acceptance**: Confirming explicit stub insertion and migration debt classification for unmapped constructs.\n* **Destructive Transformations**: Requiring interactive confirmation for deletions, signature shifts, or breaking schema migrations.\n",
+      "size": 598,
+      "links": [
+        "index",
+        "migration-planner",
+        "agent-boundaries"
+      ],
+      "backlinks": [
+        "index",
+        "migration-planner",
+        "user-and-migration-bottleneck",
+        "verification-lifecycle"
+      ]
+    },
+    {
+      "id": "index",
+      "title": "Home",
+      "type": "overview",
+      "description": "",
+      "tags": [],
+      "body": "\n# Project Exodus Knowledge Base\n\nWelcome to the Project Exodus Knowledge Base, structured in accordance with the **Open Knowledge Format v0.2 (OKF v0.2)**.\n\nProject Exodus is a graph-guided, agent-assisted legacy code migration engine designed to systematically migrate legacy codebases into modern languages with verifiable behavioral parity.\n\n## Core Knowledge Structure\n\n### 1. Fundamentals & Architecture\n* [Project Overview](project-overview.md) — Mission, core principles, and migration philosophy.\n* [User and Migration Bottleneck](user-and-migration-bottleneck.md) — Analysis of legacy modernization friction and human workflows.\n* [System Architecture](system-architecture.md) — End-to-end multi-stage pipeline architecture.\n* [Architectural Decisions](architectural-decisions.md) — Foundational design choices and ADRs.\n\n### 2. Graph & Program Analysis\n* [Semantic Graph Specification](semantic-graph-specification.md) — Schema and semantics of the Exodus Semantic Graph (ESG).\n* [Parsing Architecture](parsing-architecture.md) — Tree-sitter AST extraction and symbol table ingestion.\n* [Graph Algorithms](graph-algorithms.md) — Dependency ordering, cycle breaking, and risk weighting.\n\n### 3. Planning & Agent Boundaries\n* [Migration Planner](migration-planner.md) — Wave-based migration scheduling and topological ordering.\n* [Agent Boundaries](agent-boundaries.md) — Bounded execution, strict token limits, and LLM sandboxing.\n* [Human Approval Model](human-approval-model.md) — Checkpoints, diff inspection, and authority invariants.\n\n### 4. Transformation & Verification\n* [Transformation Engine](transformation-engine.md) — Deterministic mapping and neural transformation.\n* [Fallback and Repair Layer](fallback-and-repair-layer.md) — Graceful degradation, explicit stubs, and migration debt logging.\n* [Verification Lifecycle](verification-lifecycle.md) — Multi-tier verification: formatting, compilation, and behavior validation.\n\n### 5. Standards, Operations & Reference\n* [Artifact Schemas](artifact-schemas.md) — JSON schemas for execution records in `.exodus/`.\n* [CLI Reference](cli-reference.md) — Command-line interface and subcommand documentation.\n* [Evaluation Methodology](evaluation-methodology.md) — Empirical scoring and outcome classification.\n* [Reproduction Guide](reproduction-guide.md) — Pinned toolchains and build reproducibility instructions.\n* [Security Boundaries](security-boundaries.md) — Code execution sandboxing, secrets isolation, and privacy.\n* [Known Limitations](known-limitations.md) — Explicitly documented unsupported constructs and migration bottlenecks.\n* [Glossary](glossary.md) — Standard taxonomy and domain terms.\n",
+      "size": 2675,
+      "links": [
+        "project-overview",
+        "user-and-migration-bottleneck",
+        "system-architecture",
+        "architectural-decisions",
+        "semantic-graph-specification",
+        "parsing-architecture",
+        "graph-algorithms",
+        "migration-planner",
+        "agent-boundaries",
+        "human-approval-model",
+        "transformation-engine",
+        "fallback-and-repair-layer",
+        "verification-lifecycle",
+        "artifact-schemas",
+        "cli-reference",
+        "evaluation-methodology",
+        "reproduction-guide",
+        "security-boundaries",
+        "known-limitations",
+        "glossary"
+      ],
+      "backlinks": [
+        "agent-boundaries",
+        "architectural-decisions",
+        "artifact-schemas",
+        "cli-reference",
+        "evaluation-methodology",
+        "fallback-and-repair-layer",
+        "glossary",
+        "graph-algorithms",
+        "human-approval-model",
+        "known-limitations",
+        "migration-planner",
+        "parsing-architecture",
+        "project-overview",
+        "reproduction-guide",
+        "security-boundaries",
+        "semantic-graph-specification",
+        "system-architecture",
+        "transformation-engine",
+        "user-and-migration-bottleneck",
+        "verification-lifecycle"
+      ]
+    },
+    {
+      "id": "known-limitations",
+      "title": "Known Limitations",
+      "type": "reference",
+      "description": "",
+      "tags": [],
+      "body": "\n# Known Limitations\n\n[Index](index.md) | [Fallback and Repair Layer](fallback-and-repair-layer.md) | [Evaluation Methodology](evaluation-methodology.md)\n\nDocumented limits and unsupported dynamic constructs:\n\n## Unsupported Dynamic Semantics\n* **Dynamic Code Execution**: `eval()`, `exec()`, and dynamic module loading require manual conversion or fallback stubs.\n* **Dynamic Metaclasses / Monkey-Patching**: Dynamic runtime modification of classes is mapped to explicit trait objects or classified as `Blocked`.\n* **Complex Cyclic Macros**: Multi-crate circular macro dependencies require human intervention.\n",
+      "size": 611,
+      "links": [
+        "index",
+        "fallback-and-repair-layer",
+        "evaluation-methodology"
+      ],
+      "backlinks": [
+        "index"
+      ]
+    },
+    {
+      "id": "migration-planner",
+      "title": "Migration Planner",
+      "type": "component",
+      "description": "",
+      "tags": [],
+      "body": "\n# Migration Planner\n\n[Index](index.md) | [Human Approval Model](human-approval-model.md) | [Graph Algorithms](graph-algorithms.md)\n\nThe migration planner (`exodus-planner`) groups symbols into discrete execution waves.\n\n## Wave Structure\n* **Wave 0 (Foundation)**: Primitive types, enums, pure data structures, leaf utility functions.\n* **Wave 1 (Domain Logic)**: Pure domain entities, business logic classes with resolved leaf dependencies.\n* **Wave 2 (Service Layer)**: Orchestration services, repository implementations.\n* **Wave 3 (API / Boundary)**: Entrypoints, controllers, network endpoints, CLI handlers.\n\n## Approval Invariants\nAny migration step with a high risk score (> 70) or destructive impact requires a human approval checkpoint before proceeding.\n",
+      "size": 766,
+      "links": [
+        "index",
+        "human-approval-model",
+        "graph-algorithms"
+      ],
+      "backlinks": [
+        "graph-algorithms",
+        "human-approval-model",
+        "index",
+        "user-and-migration-bottleneck"
+      ]
+    },
+    {
+      "id": "parsing-architecture",
+      "title": "Parsing Architecture",
+      "type": "component",
+      "description": "",
+      "tags": [],
+      "body": "\n# Parsing Architecture\n\n[Index](index.md) | [Semantic Graph Specification](semantic-graph-specification.md) | [Parser Crate](../crates/exodus-parser/Cargo.toml)\n\nThe parsing architecture in `exodus-parser` decouples language frontends from downstream graph construction using tree-sitter grammars.\n\n## Strategy\n1. **Grammar Ingestion**: Load tree-sitter grammars (e.g. `tree-sitter-python`).\n2. **CST Extraction**: Traverse Concrete Syntax Tree to discover scopes, definitions, and calls.\n3. **Symbol Table Generation**: Normalize symbols into canonical URI strings.\n4. **AST Queries**: Execute tree-sitter query patterns to extract docstrings, type annotations, and control flow blocks.\n",
+      "size": 689,
+      "links": [
+        "index",
+        "semantic-graph-specification"
+      ],
+      "backlinks": [
+        "index"
+      ]
+    },
+    {
+      "id": "project-overview",
+      "title": "Project Overview",
+      "type": "overview",
+      "description": "",
+      "tags": [],
+      "body": "\n# Project Overview\n\n[Index](index.md) | [Architecture](system-architecture.md) | [ADRs](architectural-decisions.md)\n\nProject Exodus is a graph-guided, agent-assisted legacy code migration engine. It addresses the high failure rate of large-scale legacy modernization projects by combining deterministic semantic graph analysis with bounded, agentic translation.\n\n## Core Principle\n\n> Reliable migration means maximizing verified behavior while turning unresolved semantics into explicit, measurable and reviewable migration debt.\n\n## Ten-Stage Pipeline\n\n1. **Parse**: Parse legacy source files using tree-sitter.\n2. **ESG Construction**: Construct the language-neutral Exodus Semantic Graph.\n3. **Analysis**: Analyze dependencies, call graphs, cycles, and risk scores.\n4. **Plan Generation**: Compute topological migration waves.\n5. **Human Approval**: Require explicit review and signoff before risky actions.\n6. **Transform**: Translate supported constructs into the target language.\n7. **Explicit Fallbacks**: Emit reviewable stubs and migration debt records for unmapped semantics.\n8. **Verification**: Format, compile, and execute behavioral test suites.\n9. **Bounded Repair**: Run constrained, deterministic repair loops on compiler/test errors.\n10. **Report**: Output separated classifications: `Verified`, `Compatible`, `Degraded`, and `Blocked`.\n",
+      "size": 1356,
+      "links": [
+        "index",
+        "system-architecture",
+        "architectural-decisions"
+      ],
+      "backlinks": [
+        "architectural-decisions",
+        "glossary",
+        "index"
+      ]
+    },
+    {
+      "id": "reproduction-guide",
+      "title": "Reproduction Guide",
+      "type": "reference",
+      "description": "",
+      "tags": [],
+      "body": "\n# Reproduction Guide\n\n[Index](index.md) | [CLI Reference](cli-reference.md) | [Artifact Schemas](artifact-schemas.md)\n\nReproduce and verify the Exodus development environment:\n\n## Prerequisites\n* **Rust**: Pinned via `rust-toolchain.toml` (stable, 2021 edition).\n* **Node.js**: Pinned to 22 via `.nvmrc` (or Deno / Bun runtime for JS toolchains).\n\n## Reproduction Commands\n```bash\n# Install pinned JavaScript / OpenWiki dependencies\ndeno install\n\n# Check formatting, compile, and run test suites across all crates\ncargo fmt --check\ncargo check --workspace\ncargo test --workspace\n\n# Update and visualize OpenWiki knowledge graph\nnpm run wiki:update\nnpm run wiki:visualize\n```\n",
+      "size": 676,
+      "links": [
+        "index",
+        "cli-reference",
+        "artifact-schemas"
+      ],
+      "backlinks": [
+        "artifact-schemas",
+        "cli-reference",
+        "index",
+        "security-boundaries"
+      ]
+    },
+    {
+      "id": "security-boundaries",
+      "title": "Security Boundaries",
+      "type": "security",
+      "description": "",
+      "tags": [],
+      "body": "\n# Security Boundaries\n\n[Index](index.md) | [Agent Boundaries](agent-boundaries.md) | [Reproduction Guide](reproduction-guide.md)\n\nExodus enforces strict isolation and privacy rules:\n\n## Invariants\n1. **Secrets Isolation**: API tokens and private credentials must reside exclusively in local `.env` files and never be committed or written to documentation.\n2. **Execution Sandboxing**: Verification test runs and compiler executions must be executed in sandboxed container environments where untrusted legacy code is executed.\n3. **No Dynamic Telemetry Leaks**: Prompt orchestrators must redact private proprietary literals before invoking remote model providers.\n",
+      "size": 664,
+      "links": [
+        "index",
+        "agent-boundaries",
+        "reproduction-guide"
+      ],
+      "backlinks": [
+        "index"
+      ]
+    },
+    {
+      "id": "semantic-graph-specification",
+      "title": "Semantic Graph Specification",
+      "type": "data-model",
+      "description": "",
+      "tags": [],
+      "body": "\n# Semantic Graph Specification\n\n[Index](index.md) | [Graph Algorithms](graph-algorithms.md) | [System Architecture](system-architecture.md)\n\nThe **Exodus Semantic Graph (ESG)** is a language-neutral graph capturing symbol definitions, relationships, and invariants.\n\n## Node Schema\n* `id`: Unique global symbol identifier (e.g. `python::app.services.user::UserService.get_by_id`).\n* `name`: Identifier name.\n* `kind`: Symbol category (`module`, `class`, `function`, `struct`, `interface`, `variable`).\n* `file_path`: Source file relative path.\n* `language`: Source language enum.\n* `complexity_score`: Calculated cyclomatic and semantic complexity.\n\n## Edge Schema\n* `from`: Source node ID.\n* `to`: Target node ID.\n* `relationship`:\n  * `Calls`: Direct function/method invocation.\n  * `Imports`: Module dependency.\n  * `Inherits`: Class inheritance.\n  * `Implements`: Interface / trait implementation.\n  * `TypeDependency`: Parameter or return type reference.\n\n## Distinction from Documentation Graph\nThe ESG models strictly program semantics, whereas OpenWiki models documentation and architectural concepts. The two graphs are independent.\n",
+      "size": 1143,
+      "links": [
+        "index",
+        "graph-algorithms",
+        "system-architecture"
+      ],
+      "backlinks": [
+        "glossary",
+        "graph-algorithms",
+        "index",
+        "parsing-architecture",
+        "system-architecture"
+      ]
+    },
+    {
+      "id": "system-architecture",
+      "title": "System Architecture",
+      "type": "architecture",
+      "description": "",
+      "tags": [],
+      "body": "\n# System Architecture\n\n[Index](index.md) | [Semantic Graph](semantic-graph-specification.md) | [Crates](../Cargo.toml)\n\nExodus is architected as a modular Rust workspace divided into decoupled pipeline crates:\n\n```text\ncrates/\n├── exodus-core/       # Domain primitives, outcome types, errors\n├── exodus-parser/     # Tree-sitter frontend abstractions\n├── exodus-graph/      # Exodus Semantic Graph (ESG) structures and algorithms\n├── exodus-planner/    # Topological wave planner and risk evaluation\n├── exodus-agent/      # Bounded agent orchestration and prompt harnesses\n├── exodus-transform/  # Semantic code generation and AST transformation\n├── exodus-fallback/   # Fallback stub generation and debt emission\n├── exodus-verifier/   # Compiler, linter, and test verification runners\n├── exodus-eval/       # Outcome metrics and benchmark aggregation\n└── exodus-cli/        # Main CLI entry point\n```\n\n## Data Flow\n```\nLegacy Code -> [exodus-parser] -> AST\nAST -> [exodus-graph] -> ESG (Exodus Semantic Graph)\nESG -> [exodus-planner] -> Migration Plan (Waves)\nPlan -> [Human Review Gate] -> Approved Waves\nApproved Waves -> [exodus-transform] & [exodus-fallback] -> Target Code + Debt\nTarget Code -> [exodus-verifier] <-> [exodus-agent (Repair)] -> Verified Code\nOutcomes -> [exodus-eval] -> Final Report & Evidence (.exodus/)\n```\n",
+      "size": 1337,
+      "links": [
+        "index",
+        "semantic-graph-specification"
+      ],
+      "backlinks": [
+        "architectural-decisions",
+        "index",
+        "project-overview",
+        "semantic-graph-specification"
+      ]
+    },
+    {
+      "id": "transformation-engine",
+      "title": "Transformation Engine",
+      "type": "component",
+      "description": "",
+      "tags": [],
+      "body": "\n# Transformation Engine\n\n[Index](index.md) | [Fallback and Repair Layer](fallback-and-repair-layer.md) | [Verification Lifecycle](verification-lifecycle.md)\n\n`exodus-transform` translates verified AST nodes into idiomatically sound target language code.\n\n## Transformation Pipeline\n1. **Syntax Mapping**: Direct translation of arithmetic, control structures, and primitive data mappings.\n2. **Type Idiomatization**: Mapping dynamically typed collections into strongly typed Rust structs, enums, `Option<T>`, and `Result<T, E>`.\n3. **Ownership Modeling**: Identifying shared vs owned lifetimes and inserting appropriate ownership semantics (`Clone`, `Rc`, `Arc`, references).\n4. **Agent-Guided Refinement**: For complex idiomatic translations, invoke bounded agent transforms with targeted context.\n",
+      "size": 799,
+      "links": [
+        "index",
+        "fallback-and-repair-layer",
+        "verification-lifecycle"
+      ],
+      "backlinks": [
+        "agent-boundaries",
+        "fallback-and-repair-layer",
+        "index"
+      ]
+    },
+    {
+      "id": "user-and-migration-bottleneck",
+      "title": "User and Migration Bottleneck",
+      "type": "workflow",
+      "description": "",
+      "tags": [],
+      "body": "\n# User and Migration Bottleneck\n\n[Index](index.md) | [Human Approval Model](human-approval-model.md) | [Migration Planner](migration-planner.md)\n\n## The Problem\nManual code modernization is slow, error-prone, and cost-prohibitive. Conversely, naive LLM migrations fail due to hallucination, hidden semantic drift, circular dependencies, and lack of behavioral verification.\n\n## Bottleneck Mitigations\n1. **Topological Ordering**: Migration proceeds from foundational leaves upward to minimize cascading compilation breaks.\n2. **Deterministic Pre-checks**: Dependency cycles and unsupported dynamic patterns are flagged before transformation.\n3. **Structured Review**: The user inspects risk scores and plan waves in `.exodus/plan.json` before applying code modifications.\n4. **Exodus Debt Logging**: Instead of guessing dynamic runtime behavior, Exodus inserts explicit `todo!` stubs and creates measurable debt logs.\n",
+      "size": 919,
+      "links": [
+        "index",
+        "human-approval-model",
+        "migration-planner"
+      ],
+      "backlinks": [
+        "index"
+      ]
+    },
+    {
+      "id": "verification-lifecycle",
+      "title": "Verification Lifecycle",
+      "type": "workflow",
+      "description": "",
+      "tags": [],
+      "body": "\n# Verification Lifecycle\n\n[Index](index.md) | [Human Approval Model](human-approval-model.md) | [Evaluation Methodology](evaluation-methodology.md)\n\nVerification ensures generated code matches behavioral specifications through a multi-tier gate:\n\n## Stages\n1. **Format Check**: `cargo fmt --check` ensures valid, readable syntax.\n2. **Compilation Check**: `cargo check --workspace` verifies type safety, borrow checker compliance, and linkage.\n3. **Unit Tests**: Synthesized and migrated unit tests executed via `cargo test`.\n4. **Behavioral Equivalence**: Compare input/output behavior against recorded legacy test fixtures.\n\n## Outcome State Machine\n* **Passes All Stages** -> `Verified`\n* **Compiles Cleanly, Tests Pending** -> `Compatible`\n* **Contains Fallback Stubs** -> `Degraded`\n* **Fails Compilation After Repair Loop** -> `Blocked`\n",
+      "size": 844,
+      "links": [
+        "index",
+        "human-approval-model",
+        "evaluation-methodology"
+      ],
+      "backlinks": [
+        "evaluation-methodology",
+        "fallback-and-repair-layer",
+        "index",
+        "transformation-engine"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "source": "agent-boundaries",
+      "target": "index"
+    },
+    {
+      "source": "agent-boundaries",
+      "target": "transformation-engine"
+    },
+    {
+      "source": "agent-boundaries",
+      "target": "fallback-and-repair-layer"
+    },
+    {
+      "source": "architectural-decisions",
+      "target": "index"
+    },
+    {
+      "source": "architectural-decisions",
+      "target": "system-architecture"
+    },
+    {
+      "source": "architectural-decisions",
+      "target": "project-overview"
+    },
+    {
+      "source": "artifact-schemas",
+      "target": "index"
+    },
+    {
+      "source": "artifact-schemas",
+      "target": "cli-reference"
+    },
+    {
+      "source": "artifact-schemas",
+      "target": "reproduction-guide"
+    },
+    {
+      "source": "cli-reference",
+      "target": "index"
+    },
+    {
+      "source": "cli-reference",
+      "target": "reproduction-guide"
+    },
+    {
+      "source": "cli-reference",
+      "target": "artifact-schemas"
+    },
+    {
+      "source": "evaluation-methodology",
+      "target": "index"
+    },
+    {
+      "source": "evaluation-methodology",
+      "target": "verification-lifecycle"
+    },
+    {
+      "source": "evaluation-methodology",
+      "target": "artifact-schemas"
+    },
+    {
+      "source": "fallback-and-repair-layer",
+      "target": "index"
+    },
+    {
+      "source": "fallback-and-repair-layer",
+      "target": "transformation-engine"
+    },
+    {
+      "source": "fallback-and-repair-layer",
+      "target": "verification-lifecycle"
+    },
+    {
+      "source": "glossary",
+      "target": "index"
+    },
+    {
+      "source": "glossary",
+      "target": "project-overview"
+    },
+    {
+      "source": "glossary",
+      "target": "semantic-graph-specification"
+    },
+    {
+      "source": "graph-algorithms",
+      "target": "index"
+    },
+    {
+      "source": "graph-algorithms",
+      "target": "semantic-graph-specification"
+    },
+    {
+      "source": "graph-algorithms",
+      "target": "migration-planner"
+    },
+    {
+      "source": "human-approval-model",
+      "target": "index"
+    },
+    {
+      "source": "human-approval-model",
+      "target": "migration-planner"
+    },
+    {
+      "source": "human-approval-model",
+      "target": "agent-boundaries"
+    },
+    {
+      "source": "index",
+      "target": "project-overview"
+    },
+    {
+      "source": "index",
+      "target": "user-and-migration-bottleneck"
+    },
+    {
+      "source": "index",
+      "target": "system-architecture"
+    },
+    {
+      "source": "index",
+      "target": "architectural-decisions"
+    },
+    {
+      "source": "index",
+      "target": "semantic-graph-specification"
+    },
+    {
+      "source": "index",
+      "target": "parsing-architecture"
+    },
+    {
+      "source": "index",
+      "target": "graph-algorithms"
+    },
+    {
+      "source": "index",
+      "target": "migration-planner"
+    },
+    {
+      "source": "index",
+      "target": "agent-boundaries"
+    },
+    {
+      "source": "index",
+      "target": "human-approval-model"
+    },
+    {
+      "source": "index",
+      "target": "transformation-engine"
+    },
+    {
+      "source": "index",
+      "target": "fallback-and-repair-layer"
+    },
+    {
+      "source": "index",
+      "target": "verification-lifecycle"
+    },
+    {
+      "source": "index",
+      "target": "artifact-schemas"
+    },
+    {
+      "source": "index",
+      "target": "cli-reference"
+    },
+    {
+      "source": "index",
+      "target": "evaluation-methodology"
+    },
+    {
+      "source": "index",
+      "target": "reproduction-guide"
+    },
+    {
+      "source": "index",
+      "target": "security-boundaries"
+    },
+    {
+      "source": "index",
+      "target": "known-limitations"
+    },
+    {
+      "source": "index",
+      "target": "glossary"
+    },
+    {
+      "source": "known-limitations",
+      "target": "index"
+    },
+    {
+      "source": "known-limitations",
+      "target": "fallback-and-repair-layer"
+    },
+    {
+      "source": "known-limitations",
+      "target": "evaluation-methodology"
+    },
+    {
+      "source": "migration-planner",
+      "target": "index"
+    },
+    {
+      "source": "migration-planner",
+      "target": "human-approval-model"
+    },
+    {
+      "source": "migration-planner",
+      "target": "graph-algorithms"
+    },
+    {
+      "source": "parsing-architecture",
+      "target": "index"
+    },
+    {
+      "source": "parsing-architecture",
+      "target": "semantic-graph-specification"
+    },
+    {
+      "source": "project-overview",
+      "target": "index"
+    },
+    {
+      "source": "project-overview",
+      "target": "system-architecture"
+    },
+    {
+      "source": "project-overview",
+      "target": "architectural-decisions"
+    },
+    {
+      "source": "reproduction-guide",
+      "target": "index"
+    },
+    {
+      "source": "reproduction-guide",
+      "target": "cli-reference"
+    },
+    {
+      "source": "reproduction-guide",
+      "target": "artifact-schemas"
+    },
+    {
+      "source": "security-boundaries",
+      "target": "index"
+    },
+    {
+      "source": "security-boundaries",
+      "target": "agent-boundaries"
+    },
+    {
+      "source": "security-boundaries",
+      "target": "reproduction-guide"
+    },
+    {
+      "source": "semantic-graph-specification",
+      "target": "index"
+    },
+    {
+      "source": "semantic-graph-specification",
+      "target": "graph-algorithms"
+    },
+    {
+      "source": "semantic-graph-specification",
+      "target": "system-architecture"
+    },
+    {
+      "source": "system-architecture",
+      "target": "index"
+    },
+    {
+      "source": "system-architecture",
+      "target": "semantic-graph-specification"
+    },
+    {
+      "source": "transformation-engine",
+      "target": "index"
+    },
+    {
+      "source": "transformation-engine",
+      "target": "fallback-and-repair-layer"
+    },
+    {
+      "source": "transformation-engine",
+      "target": "verification-lifecycle"
+    },
+    {
+      "source": "user-and-migration-bottleneck",
+      "target": "index"
+    },
+    {
+      "source": "user-and-migration-bottleneck",
+      "target": "human-approval-model"
+    },
+    {
+      "source": "user-and-migration-bottleneck",
+      "target": "migration-planner"
+    },
+    {
+      "source": "verification-lifecycle",
+      "target": "index"
+    },
+    {
+      "source": "verification-lifecycle",
+      "target": "human-approval-model"
+    },
+    {
+      "source": "verification-lifecycle",
+      "target": "evaluation-methodology"
+    }
+  ]
+}

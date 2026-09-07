@@ -1,0 +1,8 @@
+{
+  "identifier": "default",
+  "description": "Default capability for Exodus Mission Control",
+  "windows": ["main"],
+  "permissions": [
+    "core:default"
+  ]
+}

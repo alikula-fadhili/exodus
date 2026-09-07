@@ -1,0 +1,19 @@
+[package]
+name = "exodus-case"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Migration Case Engine, structural fingerprinting, and governed learning for Project Exodus"
+
+[dependencies]
+exodus-core.workspace = true
+exodus-graph.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+tracing.workspace = true

@@ -1,0 +1,23 @@
+[package]
+name = "exodus-agent"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Bounded agent provider abstraction, repair controller, and secret-safe trajectory logging"
+
+[dependencies]
+exodus-core.workspace = true
+exodus-fallback.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+reqwest.workspace = true
+exodus-toolchain.workspace = true
+exodus-store.workspace = true

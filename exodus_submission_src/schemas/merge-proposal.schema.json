@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Exodus Merge Proposal Schema",
+  "type": "object",
+  "required": ["schema_version", "proposal_id", "task_id", "winning_branch", "base_commit", "final_commit", "approved"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "proposal_id": { "type": "string" },
+    "task_id": { "type": "string" },
+    "winning_branch": { "type": "string" },
+    "base_commit": { "type": "string" },
+    "final_commit": { "type": "string" },
+    "approved": { "type": "boolean" }
+  }
+}

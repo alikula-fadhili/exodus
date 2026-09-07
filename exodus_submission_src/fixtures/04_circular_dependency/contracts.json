@@ -1,0 +1,40 @@
+[
+  {
+    "schema_version": "1.0.0",
+    "contract_id": "contract-function-order-get_user_orders",
+    "unit_id": "function::order::get_user_orders",
+    "unit_name": "get_user_orders",
+    "unit_kind": "function",
+    "source_signature": "get_user_orders(user_id: str) -> list[str]",
+    "target_signature": "get_user_orders(user_id: String) -> Vec<String>",
+    "assertions": [
+      {
+        "case_id": "basic",
+        "input": "get_user_orders(\"u1\".to_string())",
+        "expected": "[\"order-1-u1\", \"order-2-u1\"]",
+        "oracle": "differential_execution",
+        "evidence": "differential_execution (collaborator stubbed to break CPython's own load-time import cycle, which fails with ImportError for `import user`/`import order` as authored \u2014 see docs/reviews/unit-verification-audit.md): python3 scripts/ground_fixture_contracts.py (fixtures/04_circular_dependency/{user,order}.py, captured 2026-08-29)"
+      }
+    ],
+    "verification_status": "pending"
+  },
+  {
+    "schema_version": "1.0.0",
+    "contract_id": "contract-function-user-get_user_summary",
+    "unit_id": "function::user::get_user_summary",
+    "unit_name": "get_user_summary",
+    "unit_kind": "function",
+    "source_signature": "get_user_summary(user_id: str) -> str",
+    "target_signature": "get_user_summary(user_id: String) -> String",
+    "assertions": [
+      {
+        "case_id": "basic",
+        "input": "get_user_summary(\"u1\".to_string())",
+        "expected": "\"User u1 has 2 orders\"",
+        "oracle": "differential_execution",
+        "evidence": "differential_execution (collaborator stubbed to break CPython's own load-time import cycle, which fails with ImportError for `import user`/`import order` as authored \u2014 see docs/reviews/unit-verification-audit.md): python3 scripts/ground_fixture_contracts.py (fixtures/04_circular_dependency/{user,order}.py, captured 2026-08-29)"
+      }
+    ],
+    "verification_status": "pending"
+  }
+]

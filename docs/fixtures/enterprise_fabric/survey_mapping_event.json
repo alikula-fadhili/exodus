@@ -1,0 +1,28 @@
+{
+  "domain_type": "survey_mapping",
+  "data": {
+    "batch_id": "batch-q3-nps-enterprise",
+    "source_platform": "Qualtrics-Enterprise-NPS",
+    "target_taxonomy_id": "root-product-taxonomy",
+    "responses": [
+      {
+        "id": "resp-q3-001",
+        "feedback_text": "The login page with SSO times out intermittently on Chrome",
+        "customer_segment": "Enterprise",
+        "candidate_taxonomy_node": "tax-auth-login"
+      },
+      {
+        "id": "resp-q3-002",
+        "feedback_text": "Slow dashboard query latency during peak Monday morning reports",
+        "customer_segment": "Enterprise",
+        "candidate_taxonomy_node": "tax-perf-latency"
+      },
+      {
+        "id": "resp-q3-003",
+        "feedback_text": "Invoice itemization is hard to reconcile with our accounting department",
+        "customer_segment": "Mid-Market",
+        "candidate_taxonomy_node": "tax-bill-pricing"
+      }
+    ]
+  }
+}

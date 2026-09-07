@@ -1,0 +1,24 @@
+[package]
+name = "exodus-cost"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+exodus-core = { path = "../exodus-core" }
+exodus-graph = { path = "../exodus-graph" }
+exodus-agent = { path = "../exodus-agent" }
+tokio = { workspace = true }
+tokio-util = "0.7"
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+rand = "0.8"
+chrono = { workspace = true }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+async-trait = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.10"

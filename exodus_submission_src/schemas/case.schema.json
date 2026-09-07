@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Exodus Migration Case Schema",
+  "type": "object",
+  "required": ["schema_version", "case_id", "run_id", "structural_fingerprint", "status", "failure_category"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "case_id": { "type": "string" },
+    "run_id": { "type": "string" },
+    "structural_fingerprint": { "type": "string" },
+    "status": { "type": "string" },
+    "failure_category": { "type": "string" },
+    "failure_description": { "type": "string" },
+    "unit_id": { "type": ["string", "null"], "description": "ESG identity of the unit this case originated from." },
+    "failed_assertion": { "type": ["string", "null"], "description": "The behavioral-contract assertion case_id that failed, if applicable." },
+    "source_observation": { "type": ["string", "null"] },
+    "target_observation": { "type": ["string", "null"] },
+    "esg_subgraph": { "type": ["string", "null"], "description": "Serialized minimal relevant ESG subgraph around the failing unit; this is what structural_fingerprint is derived from." }
+  }
+}

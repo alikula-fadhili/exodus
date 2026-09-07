@@ -1,0 +1,31 @@
+[package]
+name = "exodus-kernel"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Cordis-inspired Micro-Kernel Plugin Architecture and jcode Code Mode execution engine for Project Exodus"
+
+[dependencies]
+exodus-core = { workspace = true }
+exodus-graph = { workspace = true }
+exodus-toolchain = { workspace = true }
+exodus-agent = { workspace = true }
+exodus-verifier = { workspace = true }
+exodus-fallback = { workspace = true }
+exodus-planner = { workspace = true }
+exodus-cost = { workspace = true }
+exodus-store = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+regex = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.10"

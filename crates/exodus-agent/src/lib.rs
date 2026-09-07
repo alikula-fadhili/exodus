@@ -13,6 +13,59 @@ pub use policy_guard::*;
 pub mod squad;
 pub use squad::*;
 
+pub mod contract_synthesis;
+pub use contract_synthesis::*;
+
+pub mod gemini_provider;
+pub use gemini_provider::*;
+
+/// Live progress and thought observer trait for real-time terminal and harness visibility.
+pub trait AgentLiveObserver: Send + Sync {
+    fn on_repair_attempt_started(
+        &self,
+        symbol_id: &str,
+        target_lang: &str,
+        attempt: usize,
+        max_attempts: usize,
+    );
+    fn on_diagnostic_analyzed(&self, summary: &str);
+    fn on_model_response_received(&self, provider_name: &str, duration_ms: u64, code_len: usize);
+    fn on_verification_feedback(&self, passed: bool, message: &str);
+}
+
+/// Standard console live observer that prints real-time status boxes to stdout.
+#[derive(Debug, Default, Clone)]
+pub struct ConsoleLiveObserver;
+
+impl AgentLiveObserver for ConsoleLiveObserver {
+    fn on_repair_attempt_started(
+        &self,
+        symbol_id: &str,
+        target_lang: &str,
+        attempt: usize,
+        max_attempts: usize,
+    ) {
+        println!("🤖 [Agent Repair] Attempt {attempt}/{max_attempts} on symbol `{symbol_id}` ({target_lang})...");
+    }
+
+    fn on_diagnostic_analyzed(&self, summary: &str) {
+        let first_line = summary.lines().next().unwrap_or(summary);
+        println!("   🔍 Analyzing diagnostics: {first_line}");
+    }
+
+    fn on_model_response_received(&self, provider_name: &str, duration_ms: u64, code_len: usize) {
+        println!("   📥 Response from {provider_name} ({duration_ms}ms, {code_len} bytes patch)");
+    }
+
+    fn on_verification_feedback(&self, passed: bool, message: &str) {
+        if passed {
+            println!("   ✅ Verification passed: {message}");
+        } else {
+            println!("   ⚠️  Verification failed: {message}");
+        }
+    }
+}
+
 /// Bounded configuration for agent interactions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentBounds {
@@ -208,7 +261,9 @@ impl AgentProvider for OpenAiCompatibleProvider {
             .json(&request_body)
             .send()
             .await
-            .map_err(|e| exodus_core::ExodusError::Other(format!("LLM HTTP request failed: {e}")))?;
+            .map_err(|e| {
+                exodus_core::ExodusError::Other(format!("LLM HTTP request failed: {e}"))
+            })?;
 
         if !res.status().is_success() {
             let status = res.status();
@@ -218,10 +273,9 @@ impl AgentProvider for OpenAiCompatibleProvider {
             )));
         }
 
-        let json: serde_json::Value = res
-            .json()
-            .await
-            .map_err(|e| exodus_core::ExodusError::Other(format!("Failed to parse LLM JSON response: {e}")))?;
+        let json: serde_json::Value = res.json().await.map_err(|e| {
+            exodus_core::ExodusError::Other(format!("Failed to parse LLM JSON response: {e}"))
+        })?;
 
         let content = json["choices"][0]["message"]["content"]
             .as_str()
@@ -247,8 +301,7 @@ impl AgentProvider for OpenAiCompatibleProvider {
 
 fn extract_code_snippet(text: &str) -> Option<String> {
     let trimmed = text.trim();
-    if trimmed.starts_with("```") {
-        let after_fence = &trimmed[3..];
+    if let Some(after_fence) = trimmed.strip_prefix("```") {
         let code_start = if let Some(newline) = after_fence.find('\n') {
             &after_fence[newline + 1..]
         } else {
@@ -258,7 +311,7 @@ fn extract_code_snippet(text: &str) -> Option<String> {
             return Some(code_start[..last_fence].trim().to_string());
         }
     } else if let Some(first_fence) = trimmed.find("```") {
-        let after_fence = &trimmed[first_fence + 3..];
+        let after_fence = trimmed.get(first_fence + 3..).unwrap_or("");
         let code_start = if let Some(newline) = after_fence.find('\n') {
             &after_fence[newline + 1..]
         } else {
@@ -358,7 +411,7 @@ pub struct OsCredentialStore {
 
 impl SecretStore for OsCredentialStore {
     fn get_secret(&self, key: &str) -> Option<String> {
-        if let Some(val) = std::env::var(key).ok() {
+        if let Ok(val) = std::env::var(key) {
             return Some(val);
         }
         self.memory_fallback.get_secret(key)
@@ -459,14 +512,38 @@ pub struct DiscoveredAgent {
 impl DiscoveredAgent {
     /// Builds a live agent provider instance using the discovered credentials.
     pub fn build_provider(&self) -> Option<std::sync::Arc<dyn AgentProvider>> {
+        // 1. Check for Gemini credentials
+        if self.profile.provider_kind.eq_ignore_ascii_case("gemini")
+            || self.profile.provider_kind.eq_ignore_ascii_case("google")
+        {
+            if let Ok(key) = std::env::var(&self.profile.secret_ref)
+                .or_else(|_| std::env::var("GEMINI_API_KEY"))
+                .or_else(|_| std::env::var("GOOGLE_API_KEY"))
+            {
+                let provider = if let Some(ref base) = self.profile.base_url {
+                    GeminiAgentProvider::with_base_url(key, &self.profile.model, base)
+                } else {
+                    GeminiAgentProvider::new(key, &self.profile.model)
+                };
+                return Some(std::sync::Arc::new(provider));
+            }
+        }
+
+        // 2. Generic / OpenAI-compatible / Anthropic proxy / Ollama fallback
         let key = std::env::var(&self.profile.secret_ref)
             .or_else(|_| std::env::var("GEMINI_API_KEY"))
+            .or_else(|_| std::env::var("GOOGLE_API_KEY"))
             .or_else(|_| std::env::var("ANTIGRAVITY_API_KEY"))
             .or_else(|_| std::env::var("AGY_API_KEY"))
             .or_else(|_| std::env::var("OPENAI_API_KEY"))
             .or_else(|_| std::env::var("ANTHROPIC_API_KEY"))
             .or_else(|_| std::env::var("EXODUS_LLM_API_KEY"))
             .ok()?;
+
+        if key.starts_with("AIzaSy") || self.profile.model.starts_with("gemini") {
+            let provider = GeminiAgentProvider::new(key, &self.profile.model);
+            return Some(std::sync::Arc::new(provider));
+        }
 
         let base_url = self
             .profile
@@ -557,6 +634,7 @@ impl LlmMigrationEngine {
     }
 
     /// Translates a single source module with domain archetype and workspace package context.
+    #[allow(clippy::too_many_arguments)]
     pub async fn migrate_package_module(
         &self,
         module_name: &str,
@@ -663,13 +741,9 @@ impl AgentDiscovery {
     /// Auto-detects existing agents and keys across Antigravity, Claude Code, Codex, and local runtimes.
     pub fn auto_detect() -> AgentDiscoveryResult {
         // 1. Antigravity / Gemini
-        if let Some((k, var_name)) = [
-            "ANTIGRAVITY_API_KEY",
-            "AGY_API_KEY",
-            "GEMINI_API_KEY",
-        ]
-        .iter()
-        .find_map(|&name| std::env::var(name).ok().map(|val| (val, name)))
+        if let Some((k, var_name)) = ["ANTIGRAVITY_API_KEY", "AGY_API_KEY", "GEMINI_API_KEY"]
+            .iter()
+            .find_map(|&name| std::env::var(name).ok().map(|val| (val, name)))
         {
             if !k.trim().is_empty() {
                 let model = std::env::var("GEMINI_MODEL")
@@ -738,12 +812,17 @@ impl AgentDiscovery {
         if let Ok(k) = std::env::var("EXODUS_LLM_API_KEY") {
             if !k.trim().is_empty() {
                 return AgentDiscoveryResult::Found(DiscoveredAgent {
-                    source: AgentDiscoverySource::ConfiguredProfile("EXODUS_LLM_API_KEY".to_string()),
+                    source: AgentDiscoverySource::ConfiguredProfile(
+                        "EXODUS_LLM_API_KEY".to_string(),
+                    ),
                     profile: ProviderProfile {
                         name: "exodus-env-auto".to_string(),
                         provider_kind: "openai".to_string(),
-                        model: std::env::var("EXODUS_LLM_MODEL").unwrap_or_else(|_| "gpt-4o".to_string()),
-                        base_url: std::env::var("EXODUS_LLM_BASE_URL").ok().or_else(|| Some("https://api.openai.com/v1".to_string())),
+                        model: std::env::var("EXODUS_LLM_MODEL")
+                            .unwrap_or_else(|_| "gpt-4o".to_string()),
+                        base_url: std::env::var("EXODUS_LLM_BASE_URL")
+                            .ok()
+                            .or_else(|| Some("https://api.openai.com/v1".to_string())),
                         secret_ref: "EXODUS_LLM_API_KEY".to_string(),
                         cost_limit_usd: Some(15.0),
                         timeout_seconds: 45,
@@ -781,6 +860,7 @@ pub struct BoundedAgent<P: AgentProvider> {
     bounds: AgentBounds,
     fallback_gen: FallbackGenerator,
     trajectory: Vec<TrajectoryStep>,
+    observer: Option<std::sync::Arc<dyn AgentLiveObserver>>,
 }
 
 impl<P: AgentProvider> BoundedAgent<P> {
@@ -790,7 +870,13 @@ impl<P: AgentProvider> BoundedAgent<P> {
             bounds,
             fallback_gen: FallbackGenerator::new(),
             trajectory: Vec::new(),
+            observer: None,
         }
+    }
+
+    pub fn with_observer(mut self, observer: std::sync::Arc<dyn AgentLiveObserver>) -> Self {
+        self.observer = Some(observer);
+        self
     }
 
     /// Scrubs secrets (API keys, bearer tokens) from string before recording.
@@ -811,21 +897,61 @@ impl<P: AgentProvider> BoundedAgent<P> {
         out
     }
 
-    /// Executes a bounded repair loop on failing code (at most 3 iterations).
-    pub async fn repair_symbol(
+    /// Executes an evidence-guided, state-driven repair loop using structured compiler diagnostics and failed assertions.
+    pub async fn repair_symbol_with_state(
         &mut self,
         symbol_id: &str,
         source_code: &str,
-        compiler_error: &str,
+        state: &exodus_core::VerificationState,
+        target_language: &exodus_core::LanguageId,
         location: Option<SourceSpan>,
     ) -> (String, MigrationOutcome, Option<MigrationDebt>) {
         let mut current_code = source_code.to_string();
-        let current_error = compiler_error.to_string();
+        let mut diag_summary = String::new();
+
+        for d in &state.diagnostics {
+            diag_summary.push_str(&format!("- [{:?}] {}: {}\n", d.severity, d.code, d.message));
+        }
+
+        for f in &state.failed_assertions {
+            diag_summary.push_str(&format!(
+                "- [FAIL] Assertion in {}: {}\n",
+                f.test_name, f.failure_message
+            ));
+        }
+
+        if diag_summary.trim().is_empty() {
+            if !state.stderr.trim().is_empty() {
+                diag_summary = state.stderr.clone();
+            } else if !state.stdout.trim().is_empty() {
+                diag_summary = state.stdout.clone();
+            } else {
+                diag_summary = format!("Non-zero exit code: {:?}", state.exit_code);
+            }
+        }
+
+        if let Some(ref obs) = self.observer {
+            obs.on_diagnostic_analyzed(&diag_summary);
+        }
 
         for attempt in 1..=self.bounds.max_repair_iterations {
+            if let Some(ref obs) = self.observer {
+                obs.on_repair_attempt_started(
+                    symbol_id,
+                    target_language.as_str(),
+                    attempt,
+                    self.bounds.max_repair_iterations,
+                );
+            }
+
             let prompt = format!(
-                "Attempt {attempt}/{}: Repair Rust code for symbol `{symbol_id}`.\nFailing code:\n{}\nCompiler Error:\n{}",
-                self.bounds.max_repair_iterations, current_code, current_error
+                "Attempt {attempt}/{}: Repair {} code for symbol `{symbol_id}`.\n\nFailing Code:\n```{}\n{}\n```\n\nCaptured Toolchain Verification State (Stage: {:?}):\n{}\n\nGenerate the corrected code snippet that resolves these diagnostics.",
+                self.bounds.max_repair_iterations,
+                target_language,
+                target_language,
+                current_code,
+                state.stage,
+                diag_summary
             );
 
             let scrubbed_prompt = if self.bounds.enforce_secret_scrubbing {
@@ -834,10 +960,13 @@ impl<P: AgentProvider> BoundedAgent<P> {
                 prompt.clone()
             };
 
-            let sys_prompt = "You are the Exodus Repair Agent. Fix Rust compilation errors while preserving behavioral contracts.";
+            let sys_prompt = format!(
+                "You are the Exodus State-Driven Repair Agent. Fix {} compilation errors and failing behavioral assertions while preserving semantic contracts.",
+                target_language
+            );
             let start = Utc::now();
 
-            match self.provider.complete(sys_prompt, &scrubbed_prompt).await {
+            match self.provider.complete(&sys_prompt, &scrubbed_prompt).await {
                 Ok(response) => {
                     let cost = (response.tokens_prompt as f64 * 0.0000015)
                         + (response.tokens_completion as f64 * 0.000002);
@@ -845,22 +974,45 @@ impl<P: AgentProvider> BoundedAgent<P> {
                         step_index: self.trajectory.len() + 1,
                         timestamp: start,
                         role: AgentRole::RepairAgent,
-                        prompt_summary: format!("Repair attempt {attempt} on `{symbol_id}`"),
+                        prompt_summary: format!(
+                            "State-guided repair attempt {attempt} on `{symbol_id}`"
+                        ),
                         response_summary: response.explanation.clone(),
                         tokens_used: response.tokens_prompt + response.tokens_completion,
                         cost_estimate_usd: cost,
                     });
 
+                    if let Some(ref obs) = self.observer {
+                        obs.on_model_response_received(
+                            self.provider.provider_name(),
+                            response.duration_ms,
+                            response
+                                .proposed_code
+                                .as_ref()
+                                .map(|c| c.len())
+                                .unwrap_or(0),
+                        );
+                    }
+
                     if let Some(fixed_code) = response.proposed_code {
                         current_code = fixed_code;
                         // In a mock/real workflow, if repair succeeds:
                         if !current_code.contains("error") {
+                            if let Some(ref obs) = self.observer {
+                                obs.on_verification_feedback(
+                                    true,
+                                    &format!("Symbol `{symbol_id}` repaired cleanly"),
+                                );
+                            }
                             return (current_code, MigrationOutcome::Compatible, None);
                         }
                     }
                 }
                 Err(e) => {
                     tracing::warn!("Agent repair query failed on attempt {attempt}: {e}");
+                    if let Some(ref obs) = self.observer {
+                        obs.on_verification_feedback(false, &format!("Repair attempt failed: {e}"));
+                    }
                 }
             }
         }
@@ -873,7 +1025,7 @@ impl<P: AgentProvider> BoundedAgent<P> {
             "Result<(), String>",
             &format!(
                 "Bounded repair loop exceeded {} iterations: {}",
-                self.bounds.max_repair_iterations, current_error
+                self.bounds.max_repair_iterations, diag_summary
             ),
             location,
         );
@@ -884,6 +1036,38 @@ impl<P: AgentProvider> BoundedAgent<P> {
             MigrationOutcome::Degraded,
             Some(debt),
         )
+    }
+
+    /// Convenience wrapper for repair_symbol_with_state given a compiler error string.
+    pub async fn repair_symbol(
+        &mut self,
+        symbol_id: &str,
+        source_code: &str,
+        compiler_error: &str,
+        location: Option<SourceSpan>,
+    ) -> (String, MigrationOutcome, Option<MigrationDebt>) {
+        let state = exodus_core::VerificationState {
+            stage: exodus_core::VerificationStage::CompileCheck,
+            success: false,
+            exit_code: Some(1),
+            stdout: String::new(),
+            stderr: compiler_error.to_string(),
+            diagnostics: vec![exodus_core::Diagnostic::error(
+                "E_COMPILER",
+                compiler_error,
+                None,
+            )],
+            failed_assertions: Vec::new(),
+            duration_ms: 0,
+        };
+        self.repair_symbol_with_state(
+            symbol_id,
+            source_code,
+            &state,
+            &exodus_core::LanguageId::new("rust"),
+            location,
+        )
+        .await
     }
 
     pub fn trajectory(&self) -> &[TrajectoryStep] {
@@ -925,17 +1109,22 @@ mod tests {
 
     #[test]
     fn test_code_snippet_extraction() {
-        let markdown = "Here is the code:\n```rust\npub fn hello() -> bool { true }\n```\nExplanation...";
+        let markdown =
+            "Here is the code:\n```rust\npub fn hello() -> bool { true }\n```\nExplanation...";
         let code = extract_code_snippet(markdown);
         assert_eq!(code.as_deref(), Some("pub fn hello() -> bool { true }"));
 
         let raw = "pub fn direct() {}";
-        assert_eq!(extract_code_snippet(raw).as_deref(), Some("pub fn direct() {}"));
+        assert_eq!(
+            extract_code_snippet(raw).as_deref(),
+            Some("pub fn direct() {}")
+        );
     }
 
     #[test]
     fn test_openai_provider_config() {
-        let provider = OpenAiCompatibleProvider::new("test-key", "https://api.openai.com/v1/", "gpt-4o-mini");
+        let provider =
+            OpenAiCompatibleProvider::new("test-key", "https://api.openai.com/v1/", "gpt-4o-mini");
         assert_eq!(provider.provider_name(), "OpenAiCompatibleProvider");
         assert_eq!(provider.base_url, "https://api.openai.com/v1");
         assert_eq!(provider.model, "gpt-4o-mini");
@@ -968,4 +1157,3 @@ mod tests {
         }
     }
 }
-

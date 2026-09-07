@@ -1,0 +1,54 @@
+[
+  {
+    "schema_version": "1.0.0",
+    "contract_id": "contract-method-models-Product-__init___method-models-Product-get_price_type-models-Product",
+    "unit_id": "method::models::Product::__init__+method::models::Product::get_price+type::models::Product",
+    "unit_name": "Product",
+    "unit_kind": "class",
+    "source_signature": "Product(name: str, price: int); get_price() -> int",
+    "target_signature": "struct Product { name: String, price: i64 }; fn get_price(&mut self) -> i64",
+    "assertions": [
+      {
+        "case_id": "get_price_basic",
+        "input": "{ let mut p = Product::new(\"a\".to_string(), 10); p.get_price() }",
+        "expected": "10",
+        "oracle": "differential_execution",
+        "evidence": "differential_execution: python3 scripts/ground_fixture_contracts.py (fixtures/03_module_dependency/{models,service}.py, captured 2026-08-29)"
+      },
+      {
+        "case_id": "serde_roundtrip_is_identity",
+        "input": "{ let p = Product::new(\"a\".to_string(), 10); let json1 = serde_json::to_string(&p).unwrap(); let p2: Product = serde_json::from_str(&json1).unwrap(); p2 == p }",
+        "expected": "true",
+        "oracle": "declared_invariant",
+        "evidence": "declared_invariant: serialize-then-deserialize must be a no-op for a derived Serialize/Deserialize/PartialEq struct \u2014 this is a structural property, not something differential-executed against the Python source (Python has no equivalent typed round-trip), and is checked without assuming a specific field order (the transform engine's field ordering is not guaranteed stable)."
+      }
+    ],
+    "verification_status": "pending"
+  },
+  {
+    "schema_version": "1.0.0",
+    "contract_id": "contract-function-service-calculate_total",
+    "unit_id": "function::service::calculate_total",
+    "unit_name": "calculate_total",
+    "unit_kind": "function",
+    "source_signature": "calculate_total(products: list[Product]) -> int",
+    "target_signature": "calculate_total(products: Vec<Product>) -> i64",
+    "assertions": [
+      {
+        "case_id": "basic_sum",
+        "input": "calculate_total(vec![Product::new(\"a\".to_string(), 10), Product::new(\"b\".to_string(), 20), Product::new(\"c\".to_string(), 5)])",
+        "expected": "35",
+        "oracle": "differential_execution",
+        "evidence": "differential_execution: python3 scripts/ground_fixture_contracts.py (fixtures/03_module_dependency/{models,service}.py, captured 2026-08-29)"
+      },
+      {
+        "case_id": "empty_list",
+        "input": "calculate_total(vec![])",
+        "expected": "0",
+        "oracle": "differential_execution",
+        "evidence": "differential_execution: python3 scripts/ground_fixture_contracts.py (fixtures/03_module_dependency/{models,service}.py, captured 2026-08-29)"
+      }
+    ],
+    "verification_status": "pending"
+  }
+]

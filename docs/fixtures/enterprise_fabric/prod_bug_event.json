@@ -1,0 +1,11 @@
+{
+  "domain_type": "prod_bug",
+  "data": {
+    "commit_id": "8fa24b91e0a4",
+    "error_message": "SessionTimeout: unhandled token refresh failure in AuthHandler::verify_token",
+    "stack_trace": "thread 'tokio-runtime-worker' panicked at 'called `Option::unwrap()` on a `None` value': crates/auth-service/src/token.rs:88:14",
+    "target_file": "crates/auth-service/src/token.rs",
+    "target_symbol": "AuthHandler::verify_token",
+    "reproduction_command": "cargo test --package auth-service -- test_token_refresh"
+  }
+}

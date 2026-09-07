@@ -52,13 +52,15 @@ pub enum KernelError {
 /// Category of an Exodus plugin.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PluginCategory {
-    SourceParser,      // AST/Tree-sitter symbol extractors
-    TargetGenerator,   // Code generators (Axum, Tokio, Clap, Serde, Gin, etc.)
-    DomainArchetype,   // Framework & archetype mapping logic
-    SdlcArchitecture,  // SDLC modern system design & architectural thesis review
-    AgentLoopPolicy,   // Code Mode, Step-by-Step, or Autonomous policy
-    VerificationRule,  // Compiler and test runners
-    FallbackStrategy,  // Stub generation and debt emission
+    SourceParser,     // AST/Tree-sitter symbol extractors
+    TargetGenerator,  // Code generators (Axum, Tokio, Clap, Serde, Gin, etc.)
+    DomainArchetype,  // Framework & archetype mapping logic
+    SdlcArchitecture, // SDLC modern system design & architectural thesis review
+    AgentLoopPolicy,  // Code Mode, Step-by-Step, or Autonomous policy
+    VerificationRule, // Compiler and test runners
+    FallbackStrategy, // Stub generation and debt emission
+    Theme,            // UI Theme, palette tokens, and design styles
+    PolicyGuard,      // Safety oracles, ABAC limits, and metric honesty guards
 }
 
 /// Strongly-typed kernel events routed through the plugin bus.
@@ -210,12 +212,17 @@ impl ExodusKernel {
             return Err(KernelError::PluginAlreadyMounted(id.to_string()));
         }
 
-        info!("🔌 Mounting Kernel Plugin: '{}' [{:?}]", id, plugin.category());
+        info!(
+            "🔌 Mounting Kernel Plugin: '{}' [{:?}]",
+            id,
+            plugin.category()
+        );
         plugin.on_mount(&mut self.context).await?;
         self.plugins.push(plugin);
 
         // Sort plugins by priority descending
-        self.plugins.sort_by(|a, b| b.priority().cmp(&a.priority()));
+        self.plugins
+            .sort_by_key(|a| std::cmp::Reverse(a.priority()));
         Ok(())
     }
 
@@ -241,7 +248,11 @@ impl ExodusKernel {
                 Ok(Some(val)) => results.push(val),
                 Ok(None) => {}
                 Err(err) => {
-                    warn!("Plugin '{}' error during event dispatch: {}", plugin.id(), err);
+                    warn!(
+                        "Plugin '{}' error during event dispatch: {}",
+                        plugin.id(),
+                        err
+                    );
                     return Err(err);
                 }
             }

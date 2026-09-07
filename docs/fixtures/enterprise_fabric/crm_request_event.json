@@ -1,0 +1,13 @@
+{
+  "domain_type": "crm_request",
+  "data": {
+    "account_id": "acc-enterprise-042",
+    "account_name": "Globex Financial Cloud",
+    "current_arr": 240000.0,
+    "requested_discount_pct": 22.5,
+    "requested_tier": "Enterprise",
+    "requester_role": "SalesLead",
+    "contract_term_months": 24,
+    "justification": "Multi-year renewal commitment with 200 additional user seats. Discount authorized under Sales Lead governance band."
+  }
+}

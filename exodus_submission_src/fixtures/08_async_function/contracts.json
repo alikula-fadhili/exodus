@@ -1,0 +1,21 @@
+[
+  {
+    "schema_version": "1.0.0",
+    "contract_id": "contract-function-fetcher-async_fetch_data",
+    "unit_id": "function::fetcher::async_fetch_data",
+    "unit_name": "async_fetch_data",
+    "unit_kind": "function",
+    "source_signature": "async def async_fetch_data(resource_id: str) -> str",
+    "target_signature": "async_fetch_data(resource_id: String) -> String",
+    "assertions": [
+      {
+        "case_id": "basic",
+        "input": "async_fetch_data(\"res-42\".to_string()).await",
+        "expected": "\"data_for_res-42\"",
+        "oracle": "differential_execution",
+        "evidence": "differential_execution: python3 scripts/ground_fixture_contracts.py (fixtures/08_async_function/fetcher.py, captured 2026-08-29)"
+      }
+    ],
+    "verification_status": "pending"
+  }
+]

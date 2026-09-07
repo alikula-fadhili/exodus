@@ -1,0 +1,40 @@
+[package]
+name = "exodus-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Command-line interface and dispatch flows for Project Exodus"
+
+[[bin]]
+name = "exodus"
+path = "src/main.rs"
+
+[dependencies]
+exodus-core.workspace = true
+exodus-parser.workspace = true
+exodus-graph.workspace = true
+exodus-planner.workspace = true
+exodus-agent.workspace = true
+exodus-transform.workspace = true
+exodus-fallback.workspace = true
+exodus-verifier.workspace = true
+exodus-case.workspace = true
+exodus-worktree.workspace = true
+exodus-store.workspace = true
+exodus-toolchain.workspace = true
+exodus-eval.workspace = true
+exodus-kernel.workspace = true
+exodus-cost.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+clap.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+rustyline = "15.0"

@@ -1,0 +1,22 @@
+[package]
+name = "exodus-planner"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Migration plan generation, wave scheduling, and human approval checkpoints"
+
+[dependencies]
+exodus-core.workspace = true
+exodus-graph.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+exodus-toolchain.workspace = true
+exodus-store.workspace = true
+exodus-parser.workspace = true

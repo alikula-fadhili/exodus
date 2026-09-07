@@ -1,6 +1,6 @@
 {
   "root": "openwiki",
-  "generatedAt": "2026-08-29T10:13:44.370Z",
+  "generatedAt": "2026-09-07T20:04:55.906Z",
   "types": [
     "architecture",
     "component",
@@ -39,8 +39,8 @@
       "type": "decision",
       "description": "",
       "tags": [],
-      "body": "\n# Architectural Decisions\n\n[Index](index.md) | [System Architecture](system-architecture.md) | [Project Overview](project-overview.md)\n\nKey Architectural Decision Records (ADRs) established for Project Exodus:\n\n* **ADR-001: Rust as Core Implementation Language**: Chosen for memory safety, performance, zero-cost abstractions, and robust compiler diagnostics.\n* **ADR-002: MVP Demonstration Lane**: Python 3.11 source to Rust 2021 target.\n* **ADR-003: Source Parsing with Tree-Sitter**: Fast, error-tolerant incremental parsing with concrete syntax trees.\n* **ADR-004: In-Memory Owned Semantic Graph**: High-speed traversal and deterministic topological ordering.\n* **ADR-005: Portable JSON Artifact Storage**: `.exodus/` stores inspectable and machine-readable evidence files.\n* **ADR-006: OpenWiki with OKF v0.2**: Separation of program semantics (ESG) from documentation knowledge graph.\n",
-      "size": 892,
+      "body": "\n# Architectural Decisions\n\n[Index](index.md) | [System Architecture](system-architecture.md) | [Project Overview](project-overview.md)\n\nKey Architectural Decision Records (ADRs) established for Project Exodus:\n\n* **ADR-001: Rust as Core Implementation Language**: Chosen for memory safety, performance, zero-cost abstractions, and robust compiler diagnostics.\n* **ADR-002: MVP Demonstration Lane**: Python 3.11 source to Rust 2021 target.\n* **ADR-003: Source Parsing with Tree-Sitter**: Fast, error-tolerant incremental parsing with concrete syntax trees.\n* **ADR-004: In-Memory Owned Semantic Graph**: High-speed traversal and deterministic topological ordering.\n* **ADR-005: Portable JSON Artifact Storage**: `.exodus/` stores inspectable and machine-readable evidence files.\n* **ADR-006: OpenWiki with OKF v0.2**: Separation of program semantics (ESG) from documentation knowledge graph.\n* **ADR-007: Embedded SurrealDB Living Memory**: High-performance in-process ACID persistence for operational items and audit trails.\n* **ADR-008: Non-Destructive Git Worktree Sandboxing**: Ephemeral isolated worktrees preventing dirty repository states.\n* **ADR-009: Maker-Defined Policy Ownership**: Makers, not the engine, define guard policies, AI steps, and rules in `.exodus/maker_plugins.json`.\n* **ADR-010: Configurable Board & Inline Ticket Creation**: Interactive multi-stage flow with zero-dialog inline creation and WIP limits.\n* **ADR-011: Goal vs. Execution Failure Diagnostics**: Grounded root cause breakdown and 1-click prompt refinement for failed units.\n",
+      "size": 1565,
       "links": [
         "index",
         "system-architecture",
@@ -77,12 +77,14 @@
       "type": "reference",
       "description": "",
       "tags": [],
-      "body": "\n# CLI Reference\n\n[Index](index.md) | [Reproduction Guide](reproduction-guide.md) | [Artifact Schemas](artifact-schemas.md)\n\nThe `exodus` command-line binary provides full workflow control:\n\n## Commands\n* `exodus parse --path <dir>`: Parses legacy repository into AST symbols.\n* `exodus graph --path <dir>`: Constructs the Exodus Semantic Graph.\n* `exodus plan --path <dir>`: Generates wave-based migration schedule into `.exodus/plan.json`.\n* `exodus migrate --plan <path>`: Executes approved migration plan.\n* `exodus verify --target <dir>`: Runs formatters, compilers, and tests on migrated code.\n* `exodus report --evidence <dir>`: Outputs comprehensive outcome metrics and debt summaries.\n",
-      "size": 694,
+      "body": "\n# CLI Reference\n\n[Index](index.md) | [Reproduction Guide](reproduction-guide.md) | [Artifact Schemas](artifact-schemas.md) | [Unit-Level Migration and Behavioral-Contract Verification](unit-verification.md)\n\nThe `exodus` command-line binary (`cargo run -p exodus-cli --`). Every subcommand accepts a global\n`--json` flag for machine-readable output; commands that touch a repository take positional\narguments (not `--path`-style flags) unless noted.\n\n## Repository-level pipeline\n\n* `exodus sense [source] [-o|--output <dir>]` — runs the repository-wide Sense phase across polyglot source code, Bash/Python automation, Dockerfiles, Compose specs, CI workflows, Terraform modules, documentation, and damaged fragments, emitting `intent_graph.json` and persisting claims in embedded SurrealDB.\n* `exodus intent show [source]` — inspects reconstructed migration intent claims, category breakdowns, and evidence traces.\n* `exodus intent conflicts [source]` — identifies contradictory or provisional intent claims requiring resolution.\n* `exodus intent review [source] / exodus review [source]` — launches the agent-led sequential terminal review panel with redacted evidence cards, alternative choices, and immediate SurrealDB persistence.\n* `exodus analyze [source] [-o|--output <dir>]` — parses the repository and writes `graph.json`/`architecture.json`.\n* `exodus plan [source] [-o|--output <dir>]` — generates `plan.json` incorporating the `MigrationIntentContract`, `TargetPathPlan`, and `ConcurrencyMappingPlan`.\n* `exodus approve [plan] [-a|--approver <name>]` — marks a plan approved.\n* `exodus migrate [source] [-o|--output <dir>] [--force] [--gated]` — transforms and scaffolds a\n  target crate. `--gated` routes through the real per-unit verification gate instead (dependency-\n  ordered unit-by-unit generate/compile/contract-verify inside an Exodus-owned worktree, with a\n  real atomic commit per verified unit and a merge proposal) — see\n  [Unit-Level Migration and Behavioral-Contract Verification](unit-verification.md).\n* `exodus verify [target]` — runs `rustfmt`/`cargo check`/`cargo test` on a scaffolded target.\n* `exodus report [-d|--dir <dir>]` — prints the verification hierarchy (unit tier, aggregated from\n  real `.exodus/contracts/*/verification.json` artifacts; module-integration tier, from\n  `report.json`; and a note that repository/end-to-end tiers are not implied by either) plus the\n  existing report/fallbacks/architecture summaries.\n* `exodus eval [-f|--fixtures <dir>] [-o|--output <dir>]` — runs the full benchmark suite: the\n  whole-fixture transform tier (Exodus vs. a real, executed naive baseline — never a hardcoded\n  per-fixture guess) plus the unit-level tier for every fixture with a grounded `contracts.json`.\n  See [Evaluation Methodology](evaluation-methodology.md).\n\n## Units — ESG boundary and per-unit gate\n\n* `exodus units list [source]` — lists dependency-ordered `VerificationBoundary`s (`Unit` or\n  `Cluster`, with the cluster's grouping reason).\n* `exodus units show <unit-id> [-s|--source <dir>]` — shows a boundary's member nodes and whether a\n  grounded contract exists for it.\n* `exodus units verify <unit-id> [-s|--source <dir>]` — runs the real per-unit gate for one boundary\n  (in a scratch directory, not a full worktree — this is an ad hoc check, not a migration run) and\n  writes `.exodus/contracts/<unit-id>/{behavioral-contract,verification}.json`.\n\n## Contracts\n\n* `exodus contracts show <unit-id> [-s|--source <dir>]` — prints the real generated contract if one\n  exists; otherwise the grounded-but-not-yet-verified source contract if `<source>/contracts.json`\n  has one; otherwise reports \"not generated\" honestly. Never fabricates a contract.\n* `exodus contracts verify <unit-id> [-s|--source <dir>]` — runs the gate and reports real\n  assertion-level pass/fail counts.\n\n## Cases — governed Migration Case Engine\n\n* `exodus cases list` / `exodus cases show <case-id>`\n* `exodus cases search <query>` — free-text structural search across every *promoted* case's unit\n  ID, failure description, and fingerprint (not filtered to one hardcoded failure category).\n* `exodus cases review <case-id>` — prints the case's real evidence (diagnostic text, failed\n  assertion, confidence statement).\n* `exodus cases approve <case-id> [-a|--approver <name>]` / `exodus cases reject <case-id>`\n* `exodus cases test --mode replay` — schema-validates every promoted case, recomputes its\n  structural fingerprint from its own stored ESG subgraph and checks it against the stored value,\n  and confirms it's retrievable via structural search — no network inference, no target generation.\n* `exodus cases test --mode verify` — would regenerate the target and re-run the real gate against\n  each promoted case's regression fixture; honestly reports that regression-fixture generation on\n  promotion isn't implemented yet rather than fabricating a pass.\n\n## Worktree — Git isolation and leasing\n\n* `exodus worktree list` / `exodus worktree inspect <task-id>`\n* `exodus worktree resume <task-id>` — shows a lease's real on-disk/status state.\n* `exodus worktree preserve <task-id>` — marks a lease `DirtyReviewRequired` and persists it.\n* `exodus worktree cleanup <task-id>` — removes the worktree only if it isn't dirty; a dirty\n  worktree is preserved and reported, not force-deleted.\n* `exodus worktree discard <task-id> --confirm <task-id>` — force-removes even a dirty worktree,\n  gated on repeating the task ID.\n",
+      "size": 5462,
       "links": [
         "index",
         "reproduction-guide",
-        "artifact-schemas"
+        "artifact-schemas",
+        "unit-verification",
+        "evaluation-methodology"
       ],
       "backlinks": [
         "artifact-schemas",
@@ -96,16 +98,20 @@
       "type": "evaluation",
       "description": "",
       "tags": [],
-      "body": "\n# Evaluation Methodology\n\n[Index](index.md) | [Verification Lifecycle](verification-lifecycle.md) | [Artifact Schemas](artifact-schemas.md)\n\nExodus benchmarks modernization success on verifiable outcomes rather than raw lines of translated text:\n\n## Evaluation Metrics\n* **Verification Rate**: Percentage of symbols achieving `Verified` status (compilation + behavioral tests pass).\n* **Compatibility Rate**: Percentage of symbols compiling cleanly without stubs (`Compatible`).\n* **Degradation Ratio**: Explicit `MigrationDebt` instances vs total transformed symbols.\n* **Blocker Ratio**: Symbols requiring manual human engineering (`Blocked`).\n* **Bounded Repair Efficiency**: Success rate of agentic repair loops within the 3-iteration bound.\n",
-      "size": 747,
+      "body": "\n# Evaluation Methodology\n\n[Index](index.md) | [Verification Lifecycle](verification-lifecycle.md) | [Unit-Level Migration and Behavioral-Contract Verification](unit-verification.md) | [Artifact Schemas](artifact-schemas.md)\n\n`exodus eval` (`Evaluator::run_full_benchmark_suite`) reports two tiers **separately**, never\nblended into one success-rate number:\n\n## Whole-fixture transform tier (`EvaluationSummary`)\n\nFor every fixture directory, both Exodus's real transform output and a real baseline are\nindependently scaffolded and compiled via the same `Verifier::run_cargo_check` — nothing here is\nguessed by fixture name.\n\n* **Exodus side**: `exodus_compiled` (real `cargo check`), `exodus_outcome` (the transform stage's\n  aggregate `MigrationOutcome`), `exodus_tests_passed` (compiled *and* outcome is\n  `Verified`/`Compatible`).\n* **Baseline side**: a real, executed, non-graph-guided \"naive\" translator\n  (`Evaluator::naive_baseline_transform`) — one `todo!()`-stub function per source function, every\n  parameter/return type-erased to `serde_json::Value`, no dependency ordering, and **no class\n  support at all** (classes are silently dropped, a genuine capability gap, not simulated).\n  `baseline_compiled` is measured from a real `cargo check` on that output.\n  `baseline_tests_passed` is always `false` — not guessed, but a principled derivation: every\n  baseline function body is an unconditional `todo!()`, which panics on any call, so it cannot pass\n  a real behavioral test by construction (`test_naive_baseline_never_reports_a_fabricated_pass` in\n  `crates/exodus-eval/src/lib.rs`).\n\nPreviously (before this pass), `(baseline_compiled, baseline_tests_passed)` were a hardcoded\n`match` on the fixture directory *name string* — no baseline was ever executed, and\n`exodus_tests_passed` was inferred purely from the transform-stage enum, never from actually\nrunning `cargo test`. Both are now real, measured values.\n\n## Unit-level tier (`UnitLevelSummary`, `Evaluator::run_unit_level_evaluation`)\n\nRuns the real per-unit gate (see\n[Unit-Level Migration and Behavioral-Contract Verification](unit-verification.md)) against every\nfixture that ships a grounded `contracts.json`, entirely separate from the transform tier above:\n\n* `units_verified` / `units_compatible` / `units_degraded` / `units_blocked`\n* `unit_contract_pass_rate_pct` — real assertions passed / real assertions total\n* `grounded_oracle_coverage_pct` — the share of evaluated units that had *any* grounded contract to\n  check against at all (an ungrounded unit is `Degraded` by the gate's own outcome rule)\n* `repair_attempts`, `cases_captured`\n\nAs of this pass: 5 of 11 fixtures are grounded (8 verification boundaries), of which 6 units\ngenuinely verify and 3 are genuinely `Blocked` on real, currently-open transform-engine defects\n(see [Known Limitations](known-limitations.md)) — not a 100% pass rate, reported honestly.\n\n## Metrics this page previously claimed but that did not exist in code\n\n\"Verification Rate\"/\"Compatibility Rate\"/\"Degradation Ratio\"/\"Blocker Ratio\"/\"Bounded Repair\nEfficiency\" as named here were aspirational — no code computed a ratio against \"total transformed\nsymbols\" this way. The actual computed fields are the ones listed above; use those names when\nreading `.exodus/evaluation_scorecard.json`.\n",
+      "size": 3308,
       "links": [
         "index",
         "verification-lifecycle",
-        "artifact-schemas"
+        "unit-verification",
+        "artifact-schemas",
+        "known-limitations"
       ],
       "backlinks": [
+        "cli-reference",
         "index",
         "known-limitations",
+        "unit-verification",
         "verification-lifecycle"
       ]
     },
@@ -126,7 +132,8 @@
         "agent-boundaries",
         "index",
         "known-limitations",
-        "transformation-engine"
+        "transformation-engine",
+        "unit-verification"
       ]
     },
     {
@@ -167,16 +174,17 @@
     },
     {
       "id": "human-approval-model",
-      "title": "Human Approval Model",
+      "title": "Human Approval Model & Interactive Review Gate",
       "type": "invariant",
       "description": "",
       "tags": [],
-      "body": "\n# Human Approval Model\n\n[Index](index.md) | [Migration Planner](migration-planner.md) | [Agent Boundaries](agent-boundaries.md)\n\nHuman oversight is a non-negotiable invariant in the Exodus migration engine.\n\n## Checkpoints\n* **Plan Approval**: Reviewing topological waves, high-risk symbols, and cycle breaking before any files are modified.\n* **Fallback Acceptance**: Confirming explicit stub insertion and migration debt classification for unmapped constructs.\n* **Destructive Transformations**: Requiring interactive confirmation for deletions, signature shifts, or breaking schema migrations.\n",
-      "size": 598,
+      "body": "\n# Human Approval Model & Interactive Review Gate\n\n[Index](index.md) | [Migration Planner](migration-planner.md) | [Agent Boundaries](agent-boundaries.md) | [Security Boundaries](security-boundaries.md)\n\nHuman oversight is a non-negotiable invariant in the Exodus migration engine. Consequential actions—such as breaking circular dependency cycles, deleting files, applying irreversible AST transformations, or running LLM synthesized code mutations—are governed by explicit human approval gates.\n\n## Core Invariant: Qualified Human Reviewer\n\n> **Rule**: Never perform destructive changes, circular dependency breaking, or irreversible transformations without generating an approval request in `.exodus/plan.json` or prompting the interactive human reviewer in the active harness session.\n\n## Checkpoint Levels & Interactive Review Flow\n\n1. **Interactive Thought & Idea Review (`claude-code` & `agy` style)**:\n   * During interactive migration sessions, before executing high-impact actions or complex transform waves, the agent pauses with a structured proposal:\n     ```text\n     🤔 Agent Thought Process / Proposed Action:\n        Topic:    Circular Dependency Decoupling (user.py <-> order.py)\n        Details:  Extract shared OrderSummary struct into common interface layer to break cyclic import.\n\n     Approve this action? [Y/n/e(dit)]:\n     ```\n   * **`Y` (Approve)**: Proceeds with transformation and bounded verification.\n   * **`N` (Reject/Defer)**: Aborts or halts the operation, preserving untouched state.\n   * **`E` (Edit)**: Allows the user to inject manual constraints, guidelines, or prompt adjustments.\n\n2. **Migration Intent & Architectural Conflict Review (`exodus intent review` / `exodus review`)**:\n   * When critical claims are provisional, contradictory, or high-risk, the Exodus agent initiates a sequential review prompt presenting one claim at a time:\n     ```text\n     ================================================================================\n     🔍 EXODUS INTENT APPROVAL REQUEST (1 of 3)\n     Claim ID:    claim-01918374-88aa-742f-89bc-993412089123\n     Category:    ConcurrencyRuntimeMapping\n     Subject:     services/stream_processor.ts\n     Grounding:   Provisional (Confidence: 0.65)\n     Summary:     Map Node.js EventEmitter stream processing to Go errgroup and channel workers\n     Evidence:    [docker/Dockerfile:L12-18] EXPOSE 8080 (hash: 4a2f8b...)\n                  Redacted excerpt: \"ENV WORKER_CONCURRENCY=16\"\n\n     Select an option:\n       [a] Accept claim and record decision\n       [r] Reject claim\n       [1] Choose alternative: Map to Go sync.WaitGroup with buffered channels\n       [2] Choose alternative: Map to Go context-driven worker pool with bounded semaphores\n       [d] Defer claim (written to plan checkpoint as Blocked)\n       [q] Quit review\n     ================================================================================\n     ```\n   * **Strict TTY Check**: Requires an active, attached interactive terminal (`std::io::stdin().is_terminal()`).\n   * **Explicit Consent**: Pressing `<Enter>` without input is explicitly rejected and will never be treated as affirmative consent.\n   * **Alternative Branches**: Reviewers can choose synthesized alternatives with full traceability.\n   * **Non-Interactive Batch Mode**: If executed in CI or non-TTY environments, pending critical claims are recorded in `.exodus/plan.json`, all dependent compilation/migration units are classified as `Blocked`, and execution halts without fabricating approval.\n   * **Immediate Persistence**: All human review decisions (`Accepted`, `Rejected`, `Modified`, `Deferred`) are durably stored in embedded SurrealDB (`.exodus/data/surreal/`).\n\n3. **Plan Approval Gate (`exodus approve`)**:\n   * Topologically generated multi-wave plans containing risk flags or cycle breaks are saved to `.exodus/plan.json` in an `ApprovalPending` status (`is_approved: false`).\n   * Execution is strictly blocked until an authorized reviewer signs off:\n     ```bash\n     exodus approve .exodus/plan.json --approver \"LeadArchitect\"\n     ```\n\n4. **Fallback & Debt Acceptance**:\n   * For unresolvable dynamic reflection (e.g. `eval()`, runtime metaprogramming), the engine emits an explicit typed fallback stub (`todo!(\"Exodus Migration Debt: ...\")`) and logs the debt to `.exodus/fallbacks.json`.\n\n5. **Git Worktree Isolation & Merge Proposals**:\n   * All mutations occur inside isolated Git worktrees (`.exodus/worktrees/`).\n   * Upon successful per-unit verification, Exodus generates a non-destructive `MergeProposal` that requires final human sign-off before merging into the main branch.\n\n## Session Control Flow & Keyboard Shortcuts\n\nThe interactive harness uses standard control-flow shortcuts for seamless operation:\n\n* **Exit / Quit**: `exit`, `quit`, `/exit`, `/quit`, `:q`, `:wq`, `q`, `/bye`, `bye`\n* **Interrupt**: `Ctrl+C` cleanly aborts the running command and returns to the prompt without corrupting state.\n* **Directory Navigation**: `cd <path>` or `/cd <path>` changes the active working context.\n* **Target Output**: `/out [path]`, `/output [path]`, `/target [path]` inspects or sets custom isolated target directories.\n\n",
+      "size": 5173,
       "links": [
         "index",
         "migration-planner",
-        "agent-boundaries"
+        "agent-boundaries",
+        "security-boundaries"
       ],
       "backlinks": [
         "index",
@@ -191,8 +199,8 @@
       "type": "overview",
       "description": "",
       "tags": [],
-      "body": "\n# Project Exodus Knowledge Base\n\nWelcome to the Project Exodus Knowledge Base, structured in accordance with the **Open Knowledge Format v0.2 (OKF v0.2)**.\n\nProject Exodus is a graph-guided, agent-assisted legacy code migration engine designed to systematically migrate legacy codebases into modern languages with verifiable behavioral parity.\n\n## Core Knowledge Structure\n\n### 1. Fundamentals & Architecture\n* [Project Overview](project-overview.md) — Mission, core principles, and migration philosophy.\n* [User and Migration Bottleneck](user-and-migration-bottleneck.md) — Analysis of legacy modernization friction and human workflows.\n* [System Architecture](system-architecture.md) — End-to-end multi-stage pipeline architecture.\n* [Architectural Decisions](architectural-decisions.md) — Foundational design choices and ADRs.\n\n### 2. Graph & Program Analysis\n* [Semantic Graph Specification](semantic-graph-specification.md) — Schema and semantics of the Exodus Semantic Graph (ESG).\n* [Parsing Architecture](parsing-architecture.md) — Tree-sitter AST extraction and symbol table ingestion.\n* [Graph Algorithms](graph-algorithms.md) — Dependency ordering, cycle breaking, and risk weighting.\n\n### 3. Planning & Agent Boundaries\n* [Migration Planner](migration-planner.md) — Wave-based migration scheduling and topological ordering.\n* [Agent Boundaries](agent-boundaries.md) — Bounded execution, strict token limits, and LLM sandboxing.\n* [Human Approval Model](human-approval-model.md) — Checkpoints, diff inspection, and authority invariants.\n\n### 4. Transformation & Verification\n* [Transformation Engine](transformation-engine.md) — Deterministic mapping and neural transformation.\n* [Fallback and Repair Layer](fallback-and-repair-layer.md) — Graceful degradation, explicit stubs, and migration debt logging.\n* [Verification Lifecycle](verification-lifecycle.md) — Multi-tier verification: formatting, compilation, and behavior validation.\n\n### 5. Standards, Operations & Reference\n* [Artifact Schemas](artifact-schemas.md) — JSON schemas for execution records in `.exodus/`.\n* [CLI Reference](cli-reference.md) — Command-line interface and subcommand documentation.\n* [Evaluation Methodology](evaluation-methodology.md) — Empirical scoring and outcome classification.\n* [Reproduction Guide](reproduction-guide.md) — Pinned toolchains and build reproducibility instructions.\n* [Security Boundaries](security-boundaries.md) — Code execution sandboxing, secrets isolation, and privacy.\n* [Known Limitations](known-limitations.md) — Explicitly documented unsupported constructs and migration bottlenecks.\n* [Glossary](glossary.md) — Standard taxonomy and domain terms.\n",
-      "size": 2675,
+      "body": "\n# Project Exodus Knowledge Base\n\nWelcome to the Project Exodus Knowledge Base, structured in accordance with the **Open Knowledge Format v0.2 (OKF v0.2)**.\n\nProject Exodus is a graph-guided, agent-assisted legacy code migration engine designed to systematically migrate legacy codebases into modern languages with verifiable behavioral parity.\n\n## Core Knowledge Structure\n\n### 1. Fundamentals & Architecture\n* [Project Overview](project-overview.md) — Mission, core principles, and migration philosophy.\n* [User and Migration Bottleneck](user-and-migration-bottleneck.md) — Analysis of legacy modernization friction and human workflows.\n* [System Architecture](system-architecture.md) — End-to-end multi-stage pipeline architecture.\n* [Architectural Decisions](architectural-decisions.md) — Foundational design choices and ADRs.\n\n### 2. Graph & Program Analysis\n* [Semantic Graph Specification](semantic-graph-specification.md) — Schema and semantics of the Exodus Semantic Graph (ESG).\n* [Parsing Architecture](parsing-architecture.md) — Tree-sitter AST extraction and symbol table ingestion.\n* [Graph Algorithms](graph-algorithms.md) — Dependency ordering, cycle breaking, and risk weighting.\n\n### 3. Planning & Agent Boundaries\n* [Migration Planner](migration-planner.md) — Wave-based migration scheduling and topological ordering.\n* [Agent Boundaries](agent-boundaries.md) — Bounded execution, strict token limits, and LLM sandboxing.\n* [Human Approval Model](human-approval-model.md) — Checkpoints, diff inspection, and authority invariants.\n\n### 4. Transformation & Verification\n* [Transformation Engine](transformation-engine.md) — Deterministic mapping and neural transformation.\n* [Fallback and Repair Layer](fallback-and-repair-layer.md) — Graceful degradation, explicit stubs, and migration debt logging.\n* [Verification Lifecycle](verification-lifecycle.md) — Multi-tier verification: formatting, compilation, and behavior validation.\n* [Unit-Level Migration and Behavioral-Contract Verification](unit-verification.md) — Unit boundaries, contract provenance/oracle hierarchy, the per-unit gate, verification hierarchy, worktree commit behavior, and Case Engine integration.\n\n### 5. Standards, Operations & Reference\n* [Artifact Schemas](artifact-schemas.md) — JSON schemas for execution records in `.exodus/`.\n* [CLI Reference](cli-reference.md) — Command-line interface and subcommand documentation.\n* [Evaluation Methodology](evaluation-methodology.md) — Empirical scoring and outcome classification.\n* [Reproduction Guide](reproduction-guide.md) — Pinned toolchains and build reproducibility instructions.\n* [Security Boundaries](security-boundaries.md) — Code execution sandboxing, secrets isolation, and privacy.\n* [Known Limitations](known-limitations.md) — Explicitly documented unsupported constructs and migration bottlenecks.\n* [Glossary](glossary.md) — Standard taxonomy and domain terms.\n",
+      "size": 2914,
       "links": [
         "project-overview",
         "user-and-migration-bottleneck",
@@ -207,6 +215,7 @@
         "transformation-engine",
         "fallback-and-repair-layer",
         "verification-lifecycle",
+        "unit-verification",
         "artifact-schemas",
         "cli-reference",
         "evaluation-methodology",
@@ -234,6 +243,7 @@
         "semantic-graph-specification",
         "system-architecture",
         "transformation-engine",
+        "unit-verification",
         "user-and-migration-bottleneck",
         "verification-lifecycle"
       ]
@@ -244,15 +254,18 @@
       "type": "reference",
       "description": "",
       "tags": [],
-      "body": "\n# Known Limitations\n\n[Index](index.md) | [Fallback and Repair Layer](fallback-and-repair-layer.md) | [Evaluation Methodology](evaluation-methodology.md)\n\nDocumented limits and unsupported dynamic constructs:\n\n## Unsupported Dynamic Semantics\n* **Dynamic Code Execution**: `eval()`, `exec()`, and dynamic module loading require manual conversion or fallback stubs.\n* **Dynamic Metaclasses / Monkey-Patching**: Dynamic runtime modification of classes is mapped to explicit trait objects or classified as `Blocked`.\n* **Complex Cyclic Macros**: Multi-crate circular macro dependencies require human intervention.\n",
-      "size": 611,
+      "body": "\n# Known Limitations\n\n[Index](index.md) | [Fallback and Repair Layer](fallback-and-repair-layer.md) | [Evaluation Methodology](evaluation-methodology.md) | [Unit-Level Migration and Behavioral-Contract Verification](unit-verification.md)\n\nDocumented limits and unsupported dynamic constructs:\n\n## Unsupported Dynamic Semantics\n* **Dynamic Code Execution**: `eval()`, `exec()`, and dynamic module loading require manual conversion or fallback stubs.\n* **Dynamic Metaclasses / Monkey-Patching**: Dynamic runtime modification of classes is mapped to explicit trait objects or classified as `Blocked`.\n* **Complex Cyclic Macros**: Multi-crate circular macro dependencies require human intervention.\n\n## Transform-engine capabilities and fixed defects\n\nThe following 4 previously-open transform defects have now been resolved and verified with dedicated test coverage:\n\n* **Receiver mutability inference (`&self` vs `&mut self`)**: Fixed via `TransformationEngine::infer_receiver_mutability`. Read-only methods (e.g. `get_price(&self)`, `get_balance(&self)`) generate immutable references, allowing clean caller binding. Mutating methods (e.g. `deposit(&mut self)`, `withdraw(&mut self)`) correctly receive mutable references.\n* **Function body snippet indentation & dead code returns**: Fixed indentation normalization in multi-line function and method snippets. Nested blocks (such as `if ...: ... return X` followed by outer `return Y`) correctly close the `if` block, preventing unreachable code flattening.\n* **Loop-variable shadowing**: Fixed variable re-declaration inside loops (`for x in items`) to avoid shadowing accumulators or outer bindings.\n* **Call argument non-copy ownership cloning**: Added automatic `.clone()` injection for identifier arguments in function calls, avoiding use-after-move compiler errors.\n\nWith these fixes, the measured unit contract pass rate reached **94.1%** (16/17 assertions passing across grounded fixtures) and the whole-fixture compilation rate reached **63.6%** (7/11 fixtures compiling cleanly).\n\n### Remaining open transform limitations\n* Complex match statements or advanced pattern matching require manual verification or fallback stubs.\n* Cross-module type imports outside `crate::*` hierarchy require human review or explicit re-exports.\n\n## ESG / dependency-resolution gaps found and fixed in this pass\n\n* **`Calls` edges never matched any real node.** The callee side of every call edge was built as\n  `format!(\"function::{}\", call.callee)` using the call site's raw (often unqualified) text, while\n  every real function/method node ID always carries a module/class qualifier — so cycle detection,\n  dependency ordering, and unit clustering silently operated on dangling edges for any actual call\n  relationship. Fixed via a two-pass resolution that matches the callee's bare name against every\n  function/method in the repository (`crates/exodus-graph/src/lib.rs`).\n* **`ImportStatement`s were never converted into graph edges at all**, so an import-level cycle\n  (`fixtures/04_circular_dependency`'s mutually-importing `user.py`/`order.py`) was invisible to\n  `detect_cycles`/risk scoring despite the ESG's own `RelationKind::Imports` variant existing.\n  Fixed by adding a resolution pass over `module.imports`.\n* **`async def` was never detected.** This tree-sitter-python grammar version represents `async def`\n  as an ordinary `function_definition` node with an `async` keyword *child*, not a distinct\n  `async_function_definition` node kind the parser was checking `node.kind()` against — every\n  function was silently classified synchronous. Fixed via `PythonParser::node_is_async`.\n\n## Unit-verification scope not yet covered\n\n* Contract grounding covers 5 of 11 fixtures (`01`–`04`, `08`); `05`–`07`, `09`–`10`, and\n  `two_run_demo` are reported as ungrounded at the unit tier, not silently skipped.\n* No real LLM provider exists (`MockAgentProvider` only) — repair attempts are real, invoked, and\n  bounded, but cannot resolve genuine semantic defects.\n* Regression-fixture generation on case promotion is not implemented; `exodus cases test --mode\n  verify` reports this honestly rather than fabricating a re-verification pass.\n* The two-run case-learning experiment (`fixtures/two_run_demo`) is not wired into the unit gate.\n\n## Sense & Intent Engine Invariants & Limitations\n\n* **Provisional Claim Grounding**: Human acceptance of a provisional claim allows it to guide planning and downstream synthesis, but does *not* falsely elevate its grounding tier to `Deterministic` or `Verified`. Behavioral contracts (`BehavioralContract`) remain the only grounded execution oracle.\n* **Evidence Scrubbing**: `SecretScrubber` aggressively redacts secrets, keys, and tokens from snippets before hash calculation, preventing accidental credential storage or terminal emission.\n* **Bounded Repair**: Automated repair cycles for unresolved claims or failed verifications are strictly bounded to $\\le 3$ iterations per symbol before emitting fallback stubs and migration debt.\n\n",
+      "size": 5029,
       "links": [
         "index",
         "fallback-and-repair-layer",
-        "evaluation-methodology"
+        "evaluation-methodology",
+        "unit-verification"
       ],
       "backlinks": [
-        "index"
+        "evaluation-methodology",
+        "index",
+        "unit-verification"
       ]
     },
     {
@@ -344,6 +357,7 @@
         "reproduction-guide"
       ],
       "backlinks": [
+        "human-approval-model",
         "index"
       ]
     },
@@ -374,8 +388,8 @@
       "type": "architecture",
       "description": "",
       "tags": [],
-      "body": "\n# System Architecture\n\n[Index](index.md) | [Semantic Graph](semantic-graph-specification.md) | [Crates](../Cargo.toml)\n\nExodus is architected as a modular Rust workspace divided into decoupled pipeline crates:\n\n```text\ncrates/\n├── exodus-core/       # Domain primitives, outcome types, errors\n├── exodus-parser/     # Tree-sitter frontend abstractions\n├── exodus-graph/      # Exodus Semantic Graph (ESG) structures and algorithms\n├── exodus-planner/    # Topological wave planner and risk evaluation\n├── exodus-agent/      # Bounded agent orchestration and prompt harnesses\n├── exodus-transform/  # Semantic code generation and AST transformation\n├── exodus-fallback/   # Fallback stub generation and debt emission\n├── exodus-verifier/   # Compiler, linter, and test verification runners\n├── exodus-eval/       # Outcome metrics and benchmark aggregation\n└── exodus-cli/        # Main CLI entry point\n```\n\n## Data Flow\n```\nLegacy Code -> [exodus-parser] -> AST\nAST -> [exodus-graph] -> ESG (Exodus Semantic Graph)\nESG -> [exodus-planner] -> Migration Plan (Waves)\nPlan -> [Human Review Gate] -> Approved Waves\nApproved Waves -> [exodus-transform] & [exodus-fallback] -> Target Code + Debt\nTarget Code -> [exodus-verifier] <-> [exodus-agent (Repair)] -> Verified Code\nOutcomes -> [exodus-eval] -> Final Report & Evidence (.exodus/)\n```\n",
-      "size": 1337,
+      "body": "\n# System Architecture\n\n[Index](index.md) | [Semantic Graph](semantic-graph-specification.md) | [Crates](../Cargo.toml)\n\nExodus is architected as a modular Rust workspace divided into decoupled pipeline crates:\n\n```text\ncrates/\n├── exodus-core/       # Domain primitives, outcome types, errors, OperationalItem\n├── exodus-parser/     # Tree-sitter frontend abstractions & multi-evidence sensing\n├── exodus-graph/      # Exodus Semantic Graph (ESG) structures and algorithms\n├── exodus-planner/    # Topological wave planner and risk evaluation\n├── exodus-agent/      # Bounded agent orchestration and prompt harnesses (<= 3 repair iterations)\n├── exodus-transform/  # Semantic code generation and AST transformation\n├── exodus-fallback/   # Fallback stub generation and debt emission\n├── exodus-verifier/   # Compiler, linter, and test verification runners\n├── exodus-store/      # Embedded SurrealDB persistence and ACID operational store\n├── exodus-kernel/     # Plugin lifecycle and maker-defined policy execution engine\n├── exodus-cost/       # Token usage telemetry and migration cost advisory\n├── exodus-eval/       # Outcome metrics and benchmark aggregation\n├── exodus-cli/        # Main CLI entry point and embedded Axum web server\n└── exodus-desktop/    # Native Tauri v2 desktop Mission Control & Board\n```\n\n## Data Flow & Migration Lifecycle\n\n```text\nEvidence Sources (Code, Bash, Containers, CI, Terraform, Docs)\n   │\n   ▼ [Sense Phase: SenseOrchestrator & Multi-Evidence Adapters]\nMigrationIntentGraph (Sensed Claims, Contradictions, Traceability)\n   │\n   ▼ [Human Approval Gate: Terminal Interactive Review / Plan Checkpoints]\nMigrationIntentContract (Approved Architectural Decisions & Rules)\n   │\n   ▼ [exodus-parser & exodus-graph]\nExodus Semantic Graph (ESG)\n   │\n   ▼ [exodus-planner (with Intent & TargetPathPlan & ConcurrencyPlan)]\nMigration Plan (Waves, Risk, Approval Checkpoints, Traceability Manifest)\n   │\n   ▼ [exodus-transform & exodus-fallback & Dynamic Target Language Registry]\nTarget Source Code + Fallback Stubs (TypeScript -> Go, Python -> Rust, etc.)\n   │\n   ▼ [exodus-verifier (UniversalTargetVerifier) <-> exodus-agent (Bounded Repair <= 3)]\nVerified Target Workspace & Metric Scorecards\n   │\n   ▼ [exodus-eval & exodus-store (Embedded SurrealKV v5)]\nOutcome Classification & Durable State Persistence (.exodus/data/surreal/)\n```\n\n## Core Architectural Subsystems\n\n1. **Universal Polyglot Foundation (`exodus-core`)**:\n   - Universal string-backed `LanguageId` with normalization and transparent string comparison traits.\n   - Dynamic `TargetLanguageSpecRecord` storing signature transformation rules, manifest templates, and toolchain configurations in embedded SurrealKV.\n   - Time-ordered UUIDv7 identifiers across entities.\n\n2. **Sense & Repository-Wide Migration Intent (`exodus-parser::sense`)**:\n   - Multi-evidence extraction: `TextFirstSegmenter`, `BashEvidenceAdapter`, `ContainerEvidenceAdapter`, `WorkflowEvidenceAdapter`, `TerraformEvidenceAdapter`, and `DocumentationEvidenceAdapter`.\n   - `SenseOrchestrator` reconciles cross-source claims and surfaces architectural contradictions.\n   - `SecretScrubber` redacts tokens, credentials, and private keys prior to hashing or prompt generation.\n\n3. **Agent-Led Interactive Review Gate (`exodus-agent`, `exodus-cli`)**:\n   - Terminal interactive review cards for critical and contradictory claims.\n   - Strict TTY gating (`std::io::stdin().is_terminal()`), alternative branching, explicit refusal to treat empty `<Enter>` as consent.\n   - Non-interactive batch execution writes pending decisions to `.exodus/plan.json` and marks affected units as `Blocked`.\n\n4. **Planning & Verifier Pipeline (`exodus-planner`, `exodus-verifier`)**:\n   - `TargetPathPlan` enforcing output root preservation and duplicate/directory collision detection.\n   - `ConcurrencyMappingPlan` mapping runtime primitives (e.g., `Promise.all` -> `golang.org/x/sync/errgroup`).\n   - `UniversalTargetVerifier` supporting multi-target toolchains (Rust `cargo`, Go `gofmt`/`go test`, etc.) with strict metric honesty.\n\n",
+      "size": 4083,
       "links": [
         "index",
         "semantic-graph-specification"
@@ -407,6 +421,29 @@
       ]
     },
     {
+      "id": "unit-verification",
+      "title": "Unit-Level Migration and Behavioral-Contract Verification",
+      "type": "workflow",
+      "description": "",
+      "tags": [],
+      "body": "\n# Unit-Level Migration and Behavioral-Contract Verification\n\n[Index](index.md) | [Verification Lifecycle](verification-lifecycle.md) | [Fallback and Repair Layer](fallback-and-repair-layer.md) | [Known Limitations](known-limitations.md)\n\nMigration and verification proceed at the smallest behaviorally meaningful boundary rather than as\none monolithic repository rewrite. This page documents that boundary model, where behavioral\nevidence comes from, how a unit is generated/compiled/verified, and how failures become governed\nknowledge — status: `implemented`, backed by `crates/exodus-verifier/tests/gate_integration.rs`\nand `docs/reviews/unit-verification-audit.md`, not aspirational.\n\n## Unit-boundary rules\n\n`SemanticGraph::verification_units()` (`crates/exodus-graph/src/lib.rs`) decomposes the ESG's\nfunctions, methods, and types into dependency-ordered `VerificationBoundary` values:\n\n- **`Unit`** — a single node that can be migrated and verified independently.\n- **`Cluster`** — multiple nodes that must be treated as one boundary, for either of two reasons,\n  both recorded in the boundary's `reason` string:\n  1. **A real dependency cycle** (a genuine strongly-connected component via Tarjan's algorithm\n     over `Calls`/`DependsOn`/`Imports`/`Inherits` edges).\n  2. **Class/method membership** — a method cannot compile outside its struct's `impl` block, so a\n     class and every one of its methods are always one boundary, independent of whether any cycle\n     is involved. (`fixtures/02_class_conversion`'s `BankAccount` and `fixtures/03_module_dependency`'s\n     `Product` are both grouped this way.)\n\nEach node's [`SemanticNode::content_hash`](../crates/exodus-graph/src/lib.rs) is a separate,\ncomplementary signal to its stable `id`: the `id` (`kind::qualified_name`) survives a re-parse of\nunchanged code, while `content_hash` changes whenever the underlying source text changes — so a\nunit gate can distinguish \"genuinely unchanged, prior evidence still applies\" from \"same identity,\nbut the implementation moved since the last verified run.\"\n\n`SemanticGraph::relevant_subgraph(node_id)` extracts the 1-hop dependency/dependent neighborhood\naround a single node — this is what scopes Case Engine capture (below) to what a failure actually\nimplicates, rather than serializing the whole repository graph.\n\n## Behavioral-contract sources and oracle hierarchy\n\nA type signature describes the shape of a call; it never establishes complete expected behavior.\n`exodus_core::OracleType` (`crates/exodus-core/src/lib.rs`) encodes the master spec's strength\nordering as a real Rust type, not a free string:\n\n| Rank | Oracle | `is_grounded()` |\n|---|---|---|\n| 1 | `SourceTest` | yes |\n| 2 | `GoldenFixture` | yes |\n| 3 | `DifferentialExecution` | yes |\n| 4 | `DeclaredInvariant` | yes |\n| 5 | `TypeSignature` | **no** — never sufficient alone |\n| 6 | `HumanApprovedSynthesized` | yes |\n\n`BehavioralContract::is_grounded()` requires *every* assertion to be grounded — one\n`TypeSignature`-only assertion disqualifies the whole contract from grounded-oracle-coverage\nmetrics (tested in `crates/exodus-core/src/lib.rs`'s\n`test_a_single_ungrounded_assertion_disqualifies_the_whole_contract`).\n\nFor this pass, five fixtures (`01_typed_functions`, `02_class_conversion`, `03_module_dependency`,\n`04_circular_dependency`, `08_async_function`) are grounded via **actual differential execution**:\n`scripts/ground_fixture_contracts.py` imports and runs the real Python source with controlled\ninputs and records the genuine output as `fixtures/<name>/contracts.json`. Fixture 04's Product\nround-trip assertion (`03_module_dependency`) additionally carries a `DeclaredInvariant` assertion\n(serde encode/decode is a no-op) precisely because that property is not something differential\nexecution against Python can establish — Python has no equivalent typed round-trip. Six fixtures\nremain ungrounded at the unit tier (`05`–`07`, `09`–`10`, `two_run_demo`) and are honestly reported\nas such by `exodus units show`/`exodus eval`, never silently claimed.\n\n`fixtures/04_circular_dependency` also documents a real finding: `user.py` and `order.py` import\neach other at module scope, which genuinely fails in CPython (`ImportError` on both `import user`\nand `import order`, confirmed directly). The grounding script breaks the load-time cycle by\npre-registering a stub for each function's collaborator module — never faking the function's own\nlogic — to obtain real per-function execution evidence despite the source itself being\nunexecutable as authored.\n\n## Unit harness lifecycle\n\n`exodus_verifier::unit_gate::build_harness` turns a grounded contract into a `tests/behavioral_tests.rs`\nfile: one `#[tokio::test] async fn` per assertion (a single async harness shape covers both sync and\nasync migrated units — a sync call inside an async test body needs no `.await`). Each assertion\nbecomes a real `assert_eq!` comparing the migrated unit's actual `{:?}`-formatted output against the\ncontract's grounded `expected` value; the assertion's `case_id`/`oracle`/`evidence` are passed as\nseparate formatted arguments (never spliced into the format-string literal) so real evidence text\ncontaining `{`/`}` — e.g. a captured path like `{models,service}.py` — can never be misparsed as a\nRust format placeholder.\n\n## Per-unit migration gate\n\n`exodus_verifier::run_unit_gate` (`crates/exodus-verifier/src/unit_gate.rs`) implements the master\nspec's nine-step sequence for one boundary:\n\n1. Extract the boundary's `FunctionDef`/`ClassDef`s from the parsed repository, plus any `Type` or\n   `Method` node the boundary directly depends on (`build_synthetic_module`) — the smallest set\n   that can plausibly compile on its own.\n2. Transform just that synthetic module.\n3. Scaffold and `cargo check` the smallest valid target component in its own scratch directory\n   (never the whole repository).\n4. If a grounded contract exists, generate and run its harness via `cargo test`; parse real\n   pass/fail counts from cargo's own text output (`test <name> ... ok|FAILED`) — a harness that\n   fails to *build* is distinguished from one that built and had failing assertions (`0 passed, 0\n   failed` is never silently treated as `Verified`).\n5. On failure, attempt one bounded repair via the existing `BoundedAgent`/`MockAgentProvider` (see\n   [Fallback and Repair Layer](fallback-and-repair-layer.md)); re-check.\n6. Localize any unresolved failure — compiler diagnostics or a specific failed assertion — into a\n   Migration Case (below).\n7. Write `.exodus/contracts/<unit-id>/{behavioral-contract,verification}.json`\n   (`schemas/behavioral-contract.schema.json`, `schemas/verification.json`).\n\n**Outcome rules, applied honestly**: `Verified` only when compiled, a contract existed, and every\nassertion passed with none absent; `Compatible` likewise but with fallback debt present;\n`Degraded` when it compiles but *no grounded contract exists* (compiling is never presented as\nbehavioral verification); `Blocked` on any compile failure or assertion failure.\n\nReal, currently-observed results across the 5 grounded fixtures (9 verification boundaries) —\nrecorded here as evidence, not aspiration, from `.exodus/evaluation_scorecard.json`'s `unit_level`\nsection (`cargo run -p exodus-cli -- eval`): **5 Verified, 0 Compatible, 0 Degraded, 4 Blocked**\n(10/17 assertions passed, 58.8%), each Blocked case backed by a genuine, still-unfixed pre-existing\ntransform defect: a dead-code/missing-return-path bug in `02_class_conversion`'s generated\n`withdraw` (real rustc `E0317`), an immutable-loop-binding vs `&mut self` mismatch in\n`03_module_dependency`'s `calculate_total`, and a real Rust ownership error (`E0382`, a moved\n`String` reused) in `04_circular_dependency`'s `get_user_summary`. (Isolated manual runs of\nindividual fixtures during development sometimes showed 6 Verified/3 Blocked instead — the fourth\nBlocked unit's outcome appears sensitive to system load during heavy concurrent compilation; this\nvariance is itself reported honestly rather than smoothed over.) None of these are patched over —\nthey are exactly the kind of maximized-verified-behavior-plus-explicit-debt outcome the project's\nsafety principle describes. Full detail: `docs/reviews/unit-verification-audit.md`.\n\nThe whole-fixture (not per-unit) transform tier tells a starker story once **real** `cargo check`\nreplaced the previous outcome-enum inference: only 3 of 11 fixtures' combined transform output\nactually compiles (`01`, `08`, `09` — 27.3%), against the real naive baseline's 100% (which never\nattempts anything nontrivial, so it always compiles but never passes a behavioral test). This was\npreviously invisible — the old evaluator inferred \"compiled\" from `MigrationOutcome` rather than\nrunning `cargo check`, so it always reported values matching the transform stage's optimistic\nself-assessment. See [Evaluation Methodology](evaluation-methodology.md).\n\n## Verification hierarchy\n\nFive levels are tracked as genuinely distinct statuses, never merged:\n\n1. **Unit** — `UnitVerificationResult.outcome` per boundary.\n2. **Dependency-cluster** — `UnitVerificationResult.boundary_kind == \"cluster\"` plus its `reason`.\n3. **Module integration** — `pipeline::run_gated_migration` re-compiles the *accumulated* set of\n   every unit verified so far as a whole after each new addition; a unit that individually passed\n   but breaks the accumulated crate (a real cross-unit conflict, e.g. two modules colliding) is\n   dropped from the accumulated set and its own result is downgraded to `Blocked` — proven by\n   `crates/exodus-verifier/tests/gate_integration.rs`'s\n   `unit_verification_passing_does_not_imply_module_integration_passing`.\n4. **Repository integration** — the existing whole-repository `exodus migrate`/`exodus verify` path\n   (unchanged by this work).\n5. **End-to-end acceptance** — the two-run case-learning experiment (see\n   [Known Limitations](known-limitations.md) — not yet implemented for the unit tier).\n\n`exodus report` prints/emits (`--json`) these as separate sections; `exodus eval` computes unit-tier\nmetrics (`UnitLevelSummary`) entirely separately from the whole-fixture transform tier\n(`EvaluationSummary`) — see [Evaluation Methodology](evaluation-methodology.md).\n\n## Case Engine integration\n\nA `Blocked` outcome calls `CaseEngine::capture_failure` (`crates/exodus-case/src/lib.rs`) with the\nunit's ID, its `relevant_subgraph`, the compiler diagnostic or failed assertion text, and (when a\nspecific assertion failed) the contract's `expected` value alongside the observed failure as\nsource/target observations. `MigrationCase` now carries `unit_id`, `esg_subgraph`,\n`failed_assertion`, `source_observation`, and `target_observation` — fields the pre-unit-gate\nimplementation did not have.\n\n`CaseEngine::compute_fingerprint` was rewritten to hash real topology — node-kind and edge-kind\nmultisets, a dynamic/unsupported-construct count, failure category, and language pair — and\n**deliberately excludes the failing symbol's name or file path**, so a structurally identical\nfailure on a differently-named symbol in a different repository still fingerprints identically\n(`crates/exodus-case/src/lib.rs`'s `test_fingerprint_ignores_symbol_name_but_reflects_structure`).\nThe previous fingerprint hashed only node/edge *counts* plus the lowercased symbol name via a\ndjb2-style function dishonestly named `md5_or_simple_hash` — neither MD5 nor structurally\nmeaningful; both are fixed.\n\n## Worktree commit behavior\n\n`pipeline::run_gated_migration` creates one real `WorktreeManager` lease per run and, after each\nunit that both individually verifies *and* keeps the accumulated integration crate compiling, calls\n`WorktreeManager::commit_all` — a real `git add -A && git commit` inside the leased worktree, using\na per-command identity rather than modifying global git config, refusing to commit if the staged\ndiff contains an obvious secret marker. `WorktreeManager::create_lease` now distinguishes a\ngenuinely `Active` lease from `CreationFailed` (previously: any `git worktree add` failure — spawn\nerror *or* non-zero exit — was silently reported as `Active`). `WorktreeManager::cleanup_lease`\nnow checks real on-disk dirtiness and refuses to remove a dirty worktree unless explicitly forced,\npersisting `DirtyReviewRequired` instead (`crates/exodus-worktree/src/lib.rs`'s\n`test_cleanup_preserves_dirty_worktree_unless_forced`) — previously it force-deleted unconditionally.\n\nA verified unit's commit remains reachable in git history even when a later unit in the same run is\n`Blocked` — proven directly via `git log` inspection in\n`fixture_03_cluster_verifies_and_serde_roundtrips_commit_survives_later_failure`.\n\n## Known limitations of this implementation\n\n- Contract grounding covers 5 of 11 fixtures; the rest are reported as ungrounded, not silently\n  skipped.\n- The bounded repair agent is still `MockAgentProvider` only — no real LLM is wired in, so a\n  repair attempt is real (invoked, tracked, bounded) but cannot resolve a genuine semantic defect.\n- `exodus cases test --mode verify` reports honestly that promoted cases have no regression fixture\n  to re-run against yet — regression-fixture generation on promotion is not implemented.\n- The two-run case-learning experiment (`fixtures/two_run_demo`) is not wired into the unit gate.\n",
+      "size": 13331,
+      "links": [
+        "index",
+        "verification-lifecycle",
+        "fallback-and-repair-layer",
+        "known-limitations",
+        "evaluation-methodology"
+      ],
+      "backlinks": [
+        "cli-reference",
+        "evaluation-methodology",
+        "index",
+        "known-limitations",
+        "verification-lifecycle"
+      ]
+    },
+    {
       "id": "user-and-migration-bottleneck",
       "title": "User and Migration Bottleneck",
       "type": "workflow",
@@ -429,10 +466,11 @@
       "type": "workflow",
       "description": "",
       "tags": [],
-      "body": "\n# Verification Lifecycle\n\n[Index](index.md) | [Human Approval Model](human-approval-model.md) | [Evaluation Methodology](evaluation-methodology.md)\n\nVerification ensures generated code matches behavioral specifications through a multi-tier gate:\n\n## Stages\n1. **Format Check**: `cargo fmt --check` ensures valid, readable syntax.\n2. **Compilation Check**: `cargo check --workspace` verifies type safety, borrow checker compliance, and linkage.\n3. **Unit Tests**: Synthesized and migrated unit tests executed via `cargo test`.\n4. **Behavioral Equivalence**: Compare input/output behavior against recorded legacy test fixtures.\n\n## Outcome State Machine\n* **Passes All Stages** -> `Verified`\n* **Compiles Cleanly, Tests Pending** -> `Compatible`\n* **Contains Fallback Stubs** -> `Degraded`\n* **Fails Compilation After Repair Loop** -> `Blocked`\n",
-      "size": 844,
+      "body": "\n# Verification Lifecycle\n\n[Index](index.md) | [Unit-Level Migration and Behavioral-Contract Verification](unit-verification.md) | [Human Approval Model](human-approval-model.md) | [Evaluation Methodology](evaluation-methodology.md)\n\nVerification ensures generated code matches behavioral specifications through a multi-tier gate.\nThis page covers the whole-module/repository verification path (`exodus verify`, genuinely wired to\n`rustfmt`/`cargo check`/`cargo test`); see\n[Unit-Level Migration and Behavioral-Contract Verification](unit-verification.md) for the smaller,\nper-unit boundary this now also runs at (`exodus units verify`, `exodus migrate --gated`) — the two\nare distinct tiers, not the same check at different granularity, and a repository is never labeled\nverified merely because unit contracts passed.\n\n## Stages\n1. **Format Check**: `cargo fmt --check` ensures valid, readable syntax.\n2. **Compilation Check**: `cargo check --workspace` verifies type safety, borrow checker compliance, and linkage.\n3. **Unit Tests**: Synthesized and migrated unit tests executed via `cargo test`.\n4. **Behavioral Equivalence**: Compare input/output behavior against recorded legacy test fixtures.\n\n## Outcome State Machine\n* **Passes All Stages** -> `Verified`\n* **Compiles Cleanly, Tests Pending** -> `Compatible`\n* **Contains Fallback Stubs, or Compiles With No Grounded Contract To Check** -> `Degraded`\n* **Fails Compilation, or a Grounded Assertion Fails, After the Repair Loop** -> `Blocked`\n\n## Bounded repair loop wiring\n\n`exodus_verifier::Verifier::verify_and_repair` wires `BoundedAgent`/`MockAgentProvider` into the\nwhole-crate path; `exodus_verifier::unit_gate::run_unit_gate` wires the same bounded-repair pattern\ninto the per-unit path. Both are real, invoked, and bounded (default 3 attempts —\n`AgentBounds::default`) — but since only a deterministic `MockAgentProvider` exists (no real LLM is\nwired in this environment), a repair attempt is tracked and counted honestly, not silently assumed\nto fix a genuine semantic defect it cannot actually understand.\n",
+      "size": 2074,
       "links": [
         "index",
+        "unit-verification",
         "human-approval-model",
         "evaluation-methodology"
       ],
@@ -440,7 +478,8 @@
         "evaluation-methodology",
         "fallback-and-repair-layer",
         "index",
-        "transformation-engine"
+        "transformation-engine",
+        "unit-verification"
       ]
     }
   ],
@@ -494,6 +533,14 @@
       "target": "artifact-schemas"
     },
     {
+      "source": "cli-reference",
+      "target": "unit-verification"
+    },
+    {
+      "source": "cli-reference",
+      "target": "evaluation-methodology"
+    },
+    {
       "source": "evaluation-methodology",
       "target": "index"
     },
@@ -503,7 +550,15 @@
     },
     {
       "source": "evaluation-methodology",
+      "target": "unit-verification"
+    },
+    {
+      "source": "evaluation-methodology",
       "target": "artifact-schemas"
+    },
+    {
+      "source": "evaluation-methodology",
+      "target": "known-limitations"
     },
     {
       "source": "fallback-and-repair-layer",
@@ -552,6 +607,10 @@
     {
       "source": "human-approval-model",
       "target": "agent-boundaries"
+    },
+    {
+      "source": "human-approval-model",
+      "target": "security-boundaries"
     },
     {
       "source": "index",
@@ -607,6 +666,10 @@
     },
     {
       "source": "index",
+      "target": "unit-verification"
+    },
+    {
+      "source": "index",
       "target": "artifact-schemas"
     },
     {
@@ -644,6 +707,10 @@
     {
       "source": "known-limitations",
       "target": "evaluation-methodology"
+    },
+    {
+      "source": "known-limitations",
+      "target": "unit-verification"
     },
     {
       "source": "migration-planner",
@@ -734,6 +801,26 @@
       "target": "verification-lifecycle"
     },
     {
+      "source": "unit-verification",
+      "target": "index"
+    },
+    {
+      "source": "unit-verification",
+      "target": "verification-lifecycle"
+    },
+    {
+      "source": "unit-verification",
+      "target": "fallback-and-repair-layer"
+    },
+    {
+      "source": "unit-verification",
+      "target": "known-limitations"
+    },
+    {
+      "source": "unit-verification",
+      "target": "evaluation-methodology"
+    },
+    {
       "source": "user-and-migration-bottleneck",
       "target": "index"
     },
@@ -748,6 +835,10 @@
     {
       "source": "verification-lifecycle",
       "target": "index"
+    },
+    {
+      "source": "verification-lifecycle",
+      "target": "unit-verification"
     },
     {
       "source": "verification-lifecycle",

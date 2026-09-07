@@ -1,0 +1,97 @@
+name: Migration Triage & Edge Case Learning Loop
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  schedule:
+    # Run nightly evaluation across benchmark suites and edge cases
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      fixture_target:
+        description: 'Specific fixture or repository path to triage'
+        required: false
+        default: 'fixtures/'
+      auto_file_issue:
+        description: 'Automatically file a GitHub issue if a migration break is encountered'
+        type: boolean
+        default: true
+
+jobs:
+  triage-and-verify:
+    name: Run Exodus Pipeline & Triage Breaks
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo Dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build Exodus CLI & Micro-Kernel
+        run: cargo build --release
+
+      - name: Run Full Workspace Tests & Grounded Verifiers
+        run: cargo test --workspace
+
+      - name: Run Synthetic Benchmark Evaluation
+        run: ./target/release/exodus eval --benchmarks
+
+      - name: Run Triage Scan for Migration Breaks / Debts
+        id: triage_scan
+        run: |
+          mkdir -p .exodus/issues
+          ./target/release/exodus triage --scan --output-dir .exodus/issues || true
+          
+          if [ -d ".exodus/issues" ] && [ "$(ls -A .exodus/issues/*.md 2>/dev/null)" ]; then
+            echo "has_breaks=true" >> $GITHUB_OUTPUT
+            echo "Found migration breaks to triage:"
+            ls -l .exodus/issues/
+          else
+            echo "has_breaks=false" >> $GITHUB_OUTPUT
+            echo "No unresolved migration breaks detected."
+          fi
+
+      - name: Upload Triage Artifacts
+        if: steps.triage_scan.outputs.has_breaks == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-break-triage-reports
+          path: .exodus/issues/
+
+      - name: File GitHub Issue for Unresolved Migration Breaks
+        if: steps.triage_scan.outputs.has_breaks == 'true' && (github.event_name == 'schedule' || github.event.inputs.auto_file_issue == 'true')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for issue_file in .exodus/issues/*.md; do
+            [ -f "$issue_file" ] || continue
+            title=$(head -n 1 "$issue_file" | sed 's/^# //')
+            gh issue create \
+              --title "$title" \
+              --body-file "$issue_file" \
+              --label "bug:migration-break" \
+              --label "needs-triage" || echo "Failed to file issue for $issue_file"
+          done

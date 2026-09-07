@@ -38,3 +38,7 @@ anyhow.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 rustyline = "15.0"
+axum.workspace = true
+tower-http.workspace = true
+tower = { version = "0.5", features = ["util"] }
+

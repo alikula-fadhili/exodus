@@ -1,0 +1,21 @@
+[
+  {
+    "schema_version": "1.0.0",
+    "contract_id": "contract-function-external_payment-charge_card",
+    "unit_id": "function::external_payment::charge_card",
+    "unit_name": "charge_card",
+    "unit_kind": "function",
+    "source_signature": "charge_card(card_token: str, amount_cents: int) -> bool",
+    "target_signature": "charge_card(card_token: String, amount_cents: i64) -> bool",
+    "assertions": [
+      {
+        "case_id": "basic_charge",
+        "input": "charge_card(\"tok_test123\".to_string(), 1000)",
+        "expected": "true",
+        "oracle": "differential_execution",
+        "evidence": "differential_execution (with stubbed Stripe SDK): python3 scripts/ground_fixture_contracts.py (fixtures/07_missing_sdk/external_payment.py)"
+      }
+    ],
+    "verification_status": "pending"
+  }
+]

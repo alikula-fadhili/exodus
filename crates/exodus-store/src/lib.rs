@@ -3,14 +3,19 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use exodus_case::{CaseStatus, FailureCategory, MigrationCase};
-use exodus_core::{BehavioralContract, ExodusError, MigrationOutcome, Result};
+use exodus_core::{
+    BehavioralContract, CiFailureEventPayload, DeprecationRecord, EsgEdge, EsgNode, ExodusError,
+    MigrationOutcome, OperationalDomainTag, OperationalItem, OperationalLifecycleState,
+    RepositoryProfile, Result, SdlcIntegrationSettings, TargetLanguageSpecRecord,
+};
 use exodus_graph::SemanticGraph;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::sync::{Arc, RwLock};
+use surrealdb::engine::local::{Db, Mem, SurrealKv};
+use surrealdb::Surreal;
 
 pub mod sdlc_catalog;
 pub use sdlc_catalog::*;
@@ -20,6 +25,9 @@ pub use dynamic_memory::*;
 
 pub mod skills_discovery;
 pub use skills_discovery::*;
+
+pub mod operational_store;
+pub use operational_store::*;
 
 /// Persistent record representing an ESG node in the database.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,6 +76,13 @@ pub trait GraphStore: Send + Sync {
     async fn create_snapshot(&mut self, snapshot_id: &str, graph: &SemanticGraph) -> Result<()>;
     async fn load_snapshot(&self, snapshot_id: &str) -> Result<Option<SemanticGraph>>;
     async fn diff_snapshots(&self, snap_a: &str, snap_b: &str) -> Result<GraphDiff>;
+
+    // Language-neutral ESG contracts
+    async fn upsert_esg_node(&mut self, node: &EsgNode) -> Result<()>;
+    async fn get_esg_node(&self, id: &str) -> Result<Option<EsgNode>>;
+    async fn list_esg_nodes(&self) -> Result<Vec<EsgNode>>;
+    async fn add_esg_edge(&mut self, edge: &EsgEdge) -> Result<()>;
+    async fn list_esg_edges(&self) -> Result<Vec<EsgEdge>>;
 }
 
 /// Verification record for persistent trajectory tracking.
@@ -90,6 +105,8 @@ pub struct ExportManifest {
     pub contract_count: usize,
     pub snapshot_count: usize,
     pub run_count: usize,
+    pub esg_node_count: usize,
+    pub deprecation_count: usize,
 }
 
 /// Report emitted during database rebuild or JSON import.
@@ -98,6 +115,8 @@ pub struct ImportReport {
     pub cases_imported: usize,
     pub contracts_imported: usize,
     pub snapshots_imported: usize,
+    pub profiles_imported: usize,
+    pub deprecations_imported: usize,
     pub errors: Vec<String>,
 }
 
@@ -120,6 +139,48 @@ pub trait KnowledgeStore: Send + Sync {
     async fn get_framework_registry(&self) -> Result<exodus_toolchain::FrameworkRegistry>;
     async fn export_all(&self, target_dir: &Path) -> Result<ExportManifest>;
     async fn import_all(&mut self, source_dir: &Path) -> Result<ImportReport>;
+
+    // Language-neutral Repository Profile & Deprecation lifecycle
+    async fn save_profile(&mut self, profile: &RepositoryProfile) -> Result<()>;
+    async fn get_profile(&self, repo_id: &str) -> Result<Option<RepositoryProfile>>;
+    async fn save_deprecation(&mut self, deprecation: &DeprecationRecord) -> Result<()>;
+    async fn get_deprecation(&self, id: &str) -> Result<Option<DeprecationRecord>>;
+    async fn list_deprecations(&self) -> Result<Vec<DeprecationRecord>>;
+}
+
+/// Runtime-editable target-language catalog backed by the selected Exodus store.
+///
+/// Language specifications are configuration, not a parallel run-state system. Keeping them in
+/// the embedded store allows adding or tuning an ecosystem without rebuilding the CLI.
+#[async_trait]
+pub trait TargetLanguageCatalog: Send + Sync {
+    async fn get_language_spec(&self, query: &str) -> Result<Option<TargetLanguageSpecRecord>>;
+    async fn list_language_specs(&self) -> Result<Vec<TargetLanguageSpecRecord>>;
+    async fn upsert_language_spec(&mut self, spec: &TargetLanguageSpecRecord) -> Result<()>;
+    async fn reset_language_specs(&mut self) -> Result<()>;
+    async fn ensure_language_specs_seeded(&mut self) -> Result<()>;
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct PersistedStoreState {
+    nodes: HashMap<String, GraphNodeRecord>,
+    edges: Vec<GraphEdgeRecord>,
+    esg_nodes: HashMap<String, EsgNode>,
+    esg_edges: Vec<EsgEdge>,
+    snapshots: HashMap<String, SemanticGraph>,
+    profiles: HashMap<String, RepositoryProfile>,
+    deprecations: HashMap<String, DeprecationRecord>,
+    cases: HashMap<String, MigrationCase>,
+    contracts: HashMap<String, BehavioralContract>,
+    runs: Vec<VerificationRecord>,
+    frameworks: exodus_toolchain::FrameworkRegistry,
+    language_specs: HashMap<String, TargetLanguageSpecRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedStateRecord {
+    schema_version: u32,
+    state: PersistedStoreState,
 }
 
 /// Fast, thread-safe in-memory store for unit tests, CI, and parallel attempt sandboxes.
@@ -127,41 +188,128 @@ pub trait KnowledgeStore: Send + Sync {
 pub struct MemoryGraphStore {
     nodes: Arc<RwLock<HashMap<String, GraphNodeRecord>>>,
     edges: Arc<RwLock<Vec<GraphEdgeRecord>>>,
+    esg_nodes: Arc<RwLock<HashMap<String, EsgNode>>>,
+    esg_edges: Arc<RwLock<Vec<EsgEdge>>>,
     snapshots: Arc<RwLock<HashMap<String, SemanticGraph>>>,
+    profiles: Arc<RwLock<HashMap<String, RepositoryProfile>>>,
+    deprecations: Arc<RwLock<HashMap<String, DeprecationRecord>>>,
     cases: Arc<RwLock<HashMap<String, MigrationCase>>>,
     contracts: Arc<RwLock<HashMap<String, BehavioralContract>>>,
     runs: Arc<RwLock<Vec<VerificationRecord>>>,
     frameworks: Arc<RwLock<exodus_toolchain::FrameworkRegistry>>,
+    language_specs: Arc<RwLock<HashMap<String, TargetLanguageSpecRecord>>>,
 }
 
 impl MemoryGraphStore {
     pub fn new() -> Self {
         Self::default()
     }
+
+    fn snapshot(&self) -> PersistedStoreState {
+        PersistedStoreState {
+            nodes: self.nodes.read().unwrap().clone(),
+            edges: self.edges.read().unwrap().clone(),
+            esg_nodes: self.esg_nodes.read().unwrap().clone(),
+            esg_edges: self.esg_edges.read().unwrap().clone(),
+            snapshots: self.snapshots.read().unwrap().clone(),
+            profiles: self.profiles.read().unwrap().clone(),
+            deprecations: self.deprecations.read().unwrap().clone(),
+            cases: self.cases.read().unwrap().clone(),
+            contracts: self.contracts.read().unwrap().clone(),
+            runs: self.runs.read().unwrap().clone(),
+            frameworks: self.frameworks.read().unwrap().clone(),
+            language_specs: self.language_specs.read().unwrap().clone(),
+        }
+    }
+
+    fn restore(&self, state: PersistedStoreState) {
+        *self.nodes.write().unwrap() = state.nodes;
+        *self.edges.write().unwrap() = state.edges;
+        *self.esg_nodes.write().unwrap() = state.esg_nodes;
+        *self.esg_edges.write().unwrap() = state.esg_edges;
+        *self.snapshots.write().unwrap() = state.snapshots;
+        *self.profiles.write().unwrap() = state.profiles;
+        *self.deprecations.write().unwrap() = state.deprecations;
+        *self.cases.write().unwrap() = state.cases;
+        *self.contracts.write().unwrap() = state.contracts;
+        *self.runs.write().unwrap() = state.runs;
+        *self.frameworks.write().unwrap() = state.frameworks;
+        *self.language_specs.write().unwrap() = state.language_specs;
+    }
+
+    pub fn load_from_disk_sync(&self, path: &Path) {
+        let esg_file = path.join("esg_nodes.json");
+        if esg_file.is_file() {
+            if let Ok(content) = fs::read_to_string(&esg_file) {
+                if let Ok(nodes) = serde_json::from_str::<Vec<EsgNode>>(&content) {
+                    let mut map = self.esg_nodes.write().unwrap();
+                    for node in nodes {
+                        map.insert(node.id.clone(), node);
+                    }
+                }
+            }
+        }
+
+        let dep_file = path.join("deprecations.json");
+        if dep_file.is_file() {
+            if let Ok(content) = fs::read_to_string(&dep_file) {
+                if let Ok(deps) = serde_json::from_str::<Vec<DeprecationRecord>>(&content) {
+                    let mut map = self.deprecations.write().unwrap();
+                    for dep in deps {
+                        map.insert(dep.id.clone(), dep);
+                    }
+                }
+            }
+        }
+
+        let cases_file = path.join("cases.json");
+        if cases_file.is_file() {
+            if let Ok(content) = fs::read_to_string(&cases_file) {
+                if let Ok(cases) = serde_json::from_str::<Vec<MigrationCase>>(&content) {
+                    let mut map = self.cases.write().unwrap();
+                    for case in cases {
+                        map.insert(case.case_id.clone(), case);
+                    }
+                }
+            }
+        }
+
+        let contracts_file = path.join("contracts.json");
+        if contracts_file.is_file() {
+            if let Ok(content) = fs::read_to_string(&contracts_file) {
+                if let Ok(contracts) = serde_json::from_str::<Vec<BehavioralContract>>(&content) {
+                    let mut map = self.contracts.write().unwrap();
+                    for contract in contracts {
+                        map.insert(contract.unit_id.clone(), contract);
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[async_trait]
 impl GraphStore for MemoryGraphStore {
     async fn upsert_node(&mut self, node: &GraphNodeRecord) -> Result<()> {
-        let mut n = self.nodes.write().await;
+        let mut n = self.nodes.write().unwrap();
         n.insert(node.id.clone(), node.clone());
         Ok(())
     }
 
     async fn add_edge(&mut self, edge: &GraphEdgeRecord) -> Result<()> {
-        let mut e = self.edges.write().await;
+        let mut e = self.edges.write().unwrap();
         e.push(edge.clone());
         Ok(())
     }
 
     async fn get_node(&self, id: &str) -> Result<Option<GraphNodeRecord>> {
-        let n = self.nodes.read().await;
+        let n = self.nodes.read().unwrap();
         Ok(n.get(id).cloned())
     }
 
     async fn neighbors(&self, id: &str, direction: GraphDirection) -> Result<Vec<GraphNodeRecord>> {
-        let e = self.edges.read().await;
-        let n = self.nodes.read().await;
+        let e = self.edges.read().unwrap();
+        let n = self.nodes.read().unwrap();
         let mut neighbor_ids = Vec::new();
 
         for edge in e.iter() {
@@ -189,12 +337,12 @@ impl GraphStore for MemoryGraphStore {
     }
 
     async fn create_snapshot(&mut self, snapshot_id: &str, graph: &SemanticGraph) -> Result<()> {
-        let mut snaps = self.snapshots.write().await;
+        let mut snaps = self.snapshots.write().unwrap();
         snaps.insert(snapshot_id.to_string(), graph.clone());
 
         // Upsert nodes and edges into store
-        let mut n = self.nodes.write().await;
-        let mut e = self.edges.write().await;
+        let mut n = self.nodes.write().unwrap();
+        let mut e = self.edges.write().unwrap();
 
         for (id, node) in &graph.nodes {
             n.insert(
@@ -223,12 +371,12 @@ impl GraphStore for MemoryGraphStore {
     }
 
     async fn load_snapshot(&self, snapshot_id: &str) -> Result<Option<SemanticGraph>> {
-        let snaps = self.snapshots.read().await;
+        let snaps = self.snapshots.read().unwrap();
         Ok(snaps.get(snapshot_id).cloned())
     }
 
     async fn diff_snapshots(&self, snap_a: &str, snap_b: &str) -> Result<GraphDiff> {
-        let snaps = self.snapshots.read().await;
+        let snaps = self.snapshots.read().unwrap();
         let a = snaps.get(snap_a).ok_or_else(|| {
             ExodusError::Generic(format!("Snapshot `{snap_a}` not found in store"))
         })?;
@@ -253,31 +401,34 @@ impl GraphStore for MemoryGraphStore {
         let mut added_edges = Vec::new();
         let mut removed_edges = Vec::new();
 
-        for edge in &b.edges {
-            if !a.edges.iter().any(|ae| {
-                ae.from == edge.from
-                    && ae.to == edge.to
-                    && ae.relationship == edge.relationship
-            }) {
-                added_edges.push((
-                    edge.from.clone(),
-                    edge.to.clone(),
-                    format!("{:?}", edge.relationship),
-                ));
-            }
+        let edge_key = |from: &str, to: &str, rel: &exodus_graph::RelationKind| {
+            format!("{from}->{to}:{:?}", rel)
+        };
+
+        let mut a_edges = HashMap::new();
+        for e in &a.edges {
+            a_edges.insert(
+                edge_key(&e.from, &e.to, &e.relationship),
+                (&e.from, &e.to, format!("{:?}", e.relationship)),
+            );
         }
 
-        for edge in &a.edges {
-            if !b.edges.iter().any(|be| {
-                be.from == edge.from
-                    && be.to == edge.to
-                    && be.relationship == edge.relationship
-            }) {
-                removed_edges.push((
-                    edge.from.clone(),
-                    edge.to.clone(),
-                    format!("{:?}", edge.relationship),
-                ));
+        let mut b_edges = HashMap::new();
+        for e in &b.edges {
+            b_edges.insert(
+                edge_key(&e.from, &e.to, &e.relationship),
+                (&e.from, &e.to, format!("{:?}", e.relationship)),
+            );
+        }
+
+        for (k, (from, to, rel)) in &b_edges {
+            if !a_edges.contains_key(k) {
+                added_edges.push((from.to_string(), to.to_string(), rel.clone()));
+            }
+        }
+        for (k, (from, to, rel)) in &a_edges {
+            if !b_edges.contains_key(k) {
+                removed_edges.push((from.to_string(), to.to_string(), rel.clone()));
             }
         }
 
@@ -288,23 +439,50 @@ impl GraphStore for MemoryGraphStore {
             removed_edges,
         })
     }
+
+    async fn upsert_esg_node(&mut self, node: &EsgNode) -> Result<()> {
+        let mut map = self.esg_nodes.write().unwrap();
+        map.insert(node.id.clone(), node.clone());
+        Ok(())
+    }
+
+    async fn get_esg_node(&self, id: &str) -> Result<Option<EsgNode>> {
+        let map = self.esg_nodes.read().unwrap();
+        Ok(map.get(id).cloned())
+    }
+
+    async fn list_esg_nodes(&self) -> Result<Vec<EsgNode>> {
+        let map = self.esg_nodes.read().unwrap();
+        Ok(map.values().cloned().collect())
+    }
+
+    async fn add_esg_edge(&mut self, edge: &EsgEdge) -> Result<()> {
+        let mut list = self.esg_edges.write().unwrap();
+        list.push(edge.clone());
+        Ok(())
+    }
+
+    async fn list_esg_edges(&self) -> Result<Vec<EsgEdge>> {
+        let list = self.esg_edges.read().unwrap();
+        Ok(list.clone())
+    }
 }
 
 #[async_trait]
 impl KnowledgeStore for MemoryGraphStore {
     async fn save_case(&mut self, case: &MigrationCase) -> Result<()> {
-        let mut c = self.cases.write().await;
+        let mut c = self.cases.write().unwrap();
         c.insert(case.case_id.clone(), case.clone());
         Ok(())
     }
 
     async fn get_case(&self, case_id: &str) -> Result<Option<MigrationCase>> {
-        let c = self.cases.read().await;
+        let c = self.cases.read().unwrap();
         Ok(c.get(case_id).cloned())
     }
 
     async fn list_cases(&self) -> Result<Vec<MigrationCase>> {
-        let c = self.cases.read().await;
+        let c = self.cases.read().unwrap();
         Ok(c.values().cloned().collect())
     }
 
@@ -313,101 +491,137 @@ impl KnowledgeStore for MemoryGraphStore {
         fingerprint: &str,
         category: &FailureCategory,
     ) -> Result<Vec<MigrationCase>> {
-        let c = self.cases.read().await;
+        let c = self.cases.read().unwrap();
         let mut matches = Vec::new();
 
         for case in c.values() {
             if case.status == CaseStatus::Promoted
-                && (case.structural_fingerprint == fingerprint
-                    || case.failure_category == *category)
+                && case.failure_category == *category
+                && case.structural_fingerprint == fingerprint
             {
                 matches.push(case.clone());
             }
         }
 
-        matches.sort_by(|a, b| b.verified_success_count.cmp(&a.verified_success_count));
         Ok(matches)
     }
 
     async fn save_contract(&mut self, contract: &BehavioralContract) -> Result<()> {
-        let mut c = self.contracts.write().await;
+        let mut c = self.contracts.write().unwrap();
         c.insert(contract.unit_id.clone(), contract.clone());
         Ok(())
     }
 
     async fn get_contract(&self, unit_id: &str) -> Result<Option<BehavioralContract>> {
-        let c = self.contracts.read().await;
+        let c = self.contracts.read().unwrap();
         Ok(c.get(unit_id).cloned())
     }
 
     async fn list_contracts(&self) -> Result<Vec<BehavioralContract>> {
-        let c = self.contracts.read().await;
+        let c = self.contracts.read().unwrap();
         Ok(c.values().cloned().collect())
     }
 
     async fn save_verification_run(&mut self, run: &VerificationRecord) -> Result<()> {
-        let mut r = self.runs.write().await;
+        let mut r = self.runs.write().unwrap();
         r.push(run.clone());
         Ok(())
     }
 
     async fn save_framework_rule(&mut self, rule: &exodus_toolchain::FrameworkRule) -> Result<()> {
-        let mut f = self.frameworks.write().await;
+        let mut f = self.frameworks.write().unwrap();
         f.upsert_rule(rule.clone());
         Ok(())
     }
 
     async fn get_framework_registry(&self) -> Result<exodus_toolchain::FrameworkRegistry> {
-        let f = self.frameworks.read().await;
+        let f = self.frameworks.read().unwrap();
         Ok(f.clone())
     }
 
+    async fn save_profile(&mut self, profile: &RepositoryProfile) -> Result<()> {
+        let mut map = self.profiles.write().unwrap();
+        map.insert(profile.repository_id.clone(), profile.clone());
+        Ok(())
+    }
+
+    async fn get_profile(&self, repo_id: &str) -> Result<Option<RepositoryProfile>> {
+        let map = self.profiles.read().unwrap();
+        Ok(map.get(repo_id).cloned())
+    }
+
+    async fn save_deprecation(&mut self, deprecation: &DeprecationRecord) -> Result<()> {
+        let mut map = self.deprecations.write().unwrap();
+        map.insert(deprecation.id.clone(), deprecation.clone());
+        Ok(())
+    }
+
+    async fn get_deprecation(&self, id: &str) -> Result<Option<DeprecationRecord>> {
+        let map = self.deprecations.read().unwrap();
+        Ok(map.get(id).cloned())
+    }
+
+    async fn list_deprecations(&self) -> Result<Vec<DeprecationRecord>> {
+        let map = self.deprecations.read().unwrap();
+        Ok(map.values().cloned().collect())
+    }
+
     async fn export_all(&self, target_dir: &Path) -> Result<ExportManifest> {
+        fs::create_dir_all(target_dir).map_err(ExodusError::from)?;
+
         let cases = self.list_cases().await?;
+        let cases_file = target_dir.join("cases.json");
+        let cases_json = serde_json::to_string_pretty(&cases).map_err(ExodusError::from)?;
+        fs::write(cases_file, cases_json).map_err(ExodusError::from)?;
+
         let contracts = self.list_contracts().await?;
-        let snaps = self.snapshots.read().await;
-        let runs = self.runs.read().await;
-        let fw = self.frameworks.read().await;
+        let contracts_file = target_dir.join("contracts.json");
+        let contracts_json = serde_json::to_string_pretty(&contracts).map_err(ExodusError::from)?;
+        fs::write(contracts_file, contracts_json).map_err(ExodusError::from)?;
 
-        let cases_dir = target_dir.join("cases");
-        let contracts_dir = target_dir.join("contracts");
+        let esg_nodes = self.list_esg_nodes().await?;
+        let esg_file = target_dir.join("esg_nodes.json");
+        let esg_json = serde_json::to_string_pretty(&esg_nodes).map_err(ExodusError::from)?;
+        fs::write(esg_file, esg_json).map_err(ExodusError::from)?;
+
+        let deprecations = self.list_deprecations().await?;
+        let dep_file = target_dir.join("deprecations.json");
+        let dep_json = serde_json::to_string_pretty(&deprecations).map_err(ExodusError::from)?;
+        fs::write(dep_file, dep_json).map_err(ExodusError::from)?;
+
+        let frameworks = self.get_framework_registry().await?;
+        let fw_file = target_dir.join("framework_rules.json");
+        let fw_json = serde_json::to_string_pretty(&frameworks.rules).map_err(ExodusError::from)?;
+        fs::write(fw_file, fw_json).map_err(ExodusError::from)?;
+
+        let snaps = self.snapshots.read().unwrap();
         let snaps_dir = target_dir.join("snapshots");
-        fs::create_dir_all(&cases_dir).map_err(ExodusError::from)?;
-        fs::create_dir_all(&contracts_dir).map_err(ExodusError::from)?;
         fs::create_dir_all(&snaps_dir).map_err(ExodusError::from)?;
-
-        let _ = fw.save_to_dir(target_dir);
-
-        for case in &cases {
-            let p = cases_dir.join(format!("{}.json", case.case_id));
-            fs::write(p, serde_json::to_string_pretty(case)?).map_err(ExodusError::from)?;
-        }
-
-        for contract in &contracts {
-            let sanitized_id = contract.unit_id.replace(':', "_");
-            let p = contracts_dir.join(format!("{}.json", sanitized_id));
-            fs::write(p, serde_json::to_string_pretty(contract)?).map_err(ExodusError::from)?;
-        }
-
         for (snap_id, graph) in snaps.iter() {
-            let p = snaps_dir.join(format!("{}.json", snap_id));
-            fs::write(p, serde_json::to_string_pretty(graph)?).map_err(ExodusError::from)?;
+            let snap_file = snaps_dir.join(format!("{}.json", snap_id));
+            let snap_json = serde_json::to_string_pretty(graph).map_err(ExodusError::from)?;
+            fs::write(snap_file, snap_json).map_err(ExodusError::from)?;
         }
+
+        let runs = self.runs.read().unwrap();
+        let runs_file = target_dir.join("runs.json");
+        let runs_json = serde_json::to_string_pretty(&*runs).map_err(ExodusError::from)?;
+        fs::write(runs_file, runs_json).map_err(ExodusError::from)?;
 
         let manifest = ExportManifest {
-            schema_version: "1.0.0".to_string(),
+            schema_version: "4.0.0".to_string(),
             created_at: Utc::now(),
             case_count: cases.len(),
             contract_count: contracts.len(),
             snapshot_count: snaps.len(),
             run_count: runs.len(),
+            esg_node_count: esg_nodes.len(),
+            deprecation_count: deprecations.len(),
         };
 
-        fs::write(
-            target_dir.join("manifest.json"),
-            serde_json::to_string_pretty(&manifest)?,
-        )
-        .map_err(ExodusError::from)?;
+        let manifest_file = target_dir.join("export_manifest.json");
+        let manifest_json = serde_json::to_string_pretty(&manifest).map_err(ExodusError::from)?;
+        fs::write(manifest_file, manifest_json).map_err(ExodusError::from)?;
 
         Ok(manifest)
     }
@@ -417,19 +631,74 @@ impl KnowledgeStore for MemoryGraphStore {
             cases_imported: 0,
             contracts_imported: 0,
             snapshots_imported: 0,
+            profiles_imported: 0,
+            deprecations_imported: 0,
             errors: Vec::new(),
         };
 
-        let fw_file = source_dir.join("framework_rules.json");
-        if fw_file.exists() {
-            let loaded_fw = exodus_toolchain::FrameworkRegistry::load_or_init(source_dir);
-            let mut fw = self.frameworks.write().await;
-            *fw = loaded_fw;
+        let cases_file = source_dir.join("cases.json");
+        if cases_file.is_file() {
+            if let Ok(content) = fs::read_to_string(&cases_file) {
+                if let Ok(cases) = serde_json::from_str::<Vec<MigrationCase>>(&content) {
+                    for case in cases {
+                        self.save_case(&case).await?;
+                        report.cases_imported += 1;
+                    }
+                }
+            }
         }
 
-        let cases_dir = source_dir.join("cases");
-        if cases_dir.is_dir() {
-            if let Ok(entries) = fs::read_dir(cases_dir) {
+        let contracts_file = source_dir.join("contracts.json");
+        if contracts_file.is_file() {
+            if let Ok(content) = fs::read_to_string(&contracts_file) {
+                if let Ok(contracts) = serde_json::from_str::<Vec<BehavioralContract>>(&content) {
+                    for contract in contracts {
+                        self.save_contract(&contract).await?;
+                        report.contracts_imported += 1;
+                    }
+                }
+            }
+        }
+
+        let esg_file = source_dir.join("esg_nodes.json");
+        if esg_file.is_file() {
+            if let Ok(content) = fs::read_to_string(&esg_file) {
+                if let Ok(nodes) = serde_json::from_str::<Vec<EsgNode>>(&content) {
+                    for node in nodes {
+                        self.upsert_esg_node(&node).await?;
+                    }
+                }
+            }
+        }
+
+        let dep_file = source_dir.join("deprecations.json");
+        if dep_file.is_file() {
+            if let Ok(content) = fs::read_to_string(&dep_file) {
+                if let Ok(deps) = serde_json::from_str::<Vec<DeprecationRecord>>(&content) {
+                    for dep in deps {
+                        self.save_deprecation(&dep).await?;
+                        report.deprecations_imported += 1;
+                    }
+                }
+            }
+        }
+
+        let fw_file = source_dir.join("framework_rules.json");
+        if fw_file.is_file() {
+            if let Ok(content) = fs::read_to_string(&fw_file) {
+                if let Ok(rules) =
+                    serde_json::from_str::<Vec<exodus_toolchain::FrameworkRule>>(&content)
+                {
+                    for rule in rules {
+                        self.save_framework_rule(&rule).await?;
+                    }
+                }
+            }
+        }
+
+        let legacy_cases_dir = source_dir.join("cases");
+        if legacy_cases_dir.is_dir() {
+            if let Ok(entries) = fs::read_dir(legacy_cases_dir) {
                 for entry in entries.flatten() {
                     if entry.path().extension().and_then(|s| s.to_str()) == Some("json") {
                         if let Ok(content) = fs::read_to_string(entry.path()) {
@@ -443,9 +712,9 @@ impl KnowledgeStore for MemoryGraphStore {
             }
         }
 
-        let contracts_dir = source_dir.join("contracts");
-        if contracts_dir.is_dir() {
-            if let Ok(entries) = fs::read_dir(contracts_dir) {
+        let legacy_contracts_dir = source_dir.join("contracts");
+        if legacy_contracts_dir.is_dir() {
+            if let Ok(entries) = fs::read_dir(legacy_contracts_dir) {
                 for entry in entries.flatten() {
                     if entry.path().extension().and_then(|s| s.to_str()) == Some("json") {
                         if let Ok(content) = fs::read_to_string(entry.path()) {
@@ -487,25 +756,103 @@ impl KnowledgeStore for MemoryGraphStore {
     }
 }
 
-/// Embedded SurrealDB store managing persistence under `.exodus/data/surreal/`.
-#[derive(Debug, Clone)]
+#[async_trait]
+impl TargetLanguageCatalog for MemoryGraphStore {
+    async fn get_language_spec(&self, query: &str) -> Result<Option<TargetLanguageSpecRecord>> {
+        Ok(self
+            .language_specs
+            .read()
+            .unwrap()
+            .values()
+            .find(|spec| spec.matches_query(query))
+            .cloned())
+    }
+
+    async fn list_language_specs(&self) -> Result<Vec<TargetLanguageSpecRecord>> {
+        let mut specs: Vec<_> = self
+            .language_specs
+            .read()
+            .unwrap()
+            .values()
+            .cloned()
+            .collect();
+        specs.sort_by(|left, right| left.id.cmp(&right.id));
+        Ok(specs)
+    }
+
+    async fn upsert_language_spec(&mut self, spec: &TargetLanguageSpecRecord) -> Result<()> {
+        self.language_specs
+            .write()
+            .unwrap()
+            .insert(spec.id.clone(), spec.clone());
+        Ok(())
+    }
+
+    async fn reset_language_specs(&mut self) -> Result<()> {
+        *self.language_specs.write().unwrap() = TargetLanguageSpecRecord::default_specs()
+            .into_iter()
+            .map(|spec| (spec.id.clone(), spec))
+            .collect();
+        Ok(())
+    }
+
+    async fn ensure_language_specs_seeded(&mut self) -> Result<()> {
+        if self.language_specs.read().unwrap().is_empty() {
+            self.reset_language_specs().await?;
+        }
+        Ok(())
+    }
+}
+
+/// Embedded SurrealDB store managing durable persistence under `.exodus/data/surreal/`.
+#[derive(Clone)]
 pub struct SurrealGraphStore {
     db_path: PathBuf,
+    db: Surreal<Db>,
     memory_backend: MemoryGraphStore,
+    operational_backend: EmbeddedOperationalStore,
     schema_version: u32,
+    is_durable_file_backed: bool,
 }
 
 impl SurrealGraphStore {
-    /// Opens or initializes local embedded SurrealDB store.
-    pub fn open(db_path: impl Into<PathBuf>) -> Result<Self> {
+    const NAMESPACE: &'static str = "exodus";
+    const DATABASE: &'static str = "living_memory";
+    const STATE_TABLE: &'static str = "embedded_state";
+    const STATE_ID: &'static str = "current";
+
+    fn storage_error(context: &str, error: impl std::fmt::Display) -> ExodusError {
+        ExodusError::Generic(format!("{context}: {error}"))
+    }
+
+    /// Opens or initializes a local SurrealKV database backed by disk storage.
+    pub async fn open(db_path: impl Into<PathBuf>) -> Result<Self> {
         let path = db_path.into();
         fs::create_dir_all(&path).map_err(ExodusError::from)?;
+        let endpoint = path.to_string_lossy().into_owned();
+        let db = Surreal::new::<SurrealKv>(endpoint)
+            .await
+            .map_err(|error| Self::storage_error("failed to open embedded SurrealKV", error))?;
+        db.use_ns(Self::NAMESPACE)
+            .use_db(Self::DATABASE)
+            .await
+            .map_err(|error| Self::storage_error("failed to select SurrealDB namespace", error))?;
 
-        let store = Self {
-            db_path: path,
+        let mut store = Self {
+            db_path: path.clone(),
+            db,
             memory_backend: MemoryGraphStore::new(),
-            schema_version: 3,
+            operational_backend: EmbeddedOperationalStore::new(),
+            schema_version: 4,
+            is_durable_file_backed: true,
         };
+
+        if !store.restore_from_surreal().await? {
+            // One-time, read-only import path for artifacts emitted by the pre-Surreal mock.
+            store.memory_backend.load_from_disk_sync(&path);
+        }
+        store.ensure_language_specs_seeded().await?;
+        store.flush_to_disk().await?;
 
         Ok(store)
     }
@@ -514,18 +861,67 @@ impl SurrealGraphStore {
         &self.db_path
     }
 
-    /// Initializes in-memory Surreal store mode for tests and CI.
-    pub fn open_in_memory() -> Self {
-        Self {
+    pub fn is_durable(&self) -> bool {
+        self.is_durable_file_backed
+    }
+
+    /// Initializes an embedded SurrealDB memory engine for deterministic unit tests.
+    pub async fn open_in_memory() -> Result<Self> {
+        let db = Surreal::new::<Mem>(()).await.map_err(|error| {
+            Self::storage_error("failed to open SurrealDB memory engine", error)
+        })?;
+        db.use_ns(Self::NAMESPACE)
+            .use_db(Self::DATABASE)
+            .await
+            .map_err(|error| Self::storage_error("failed to select SurrealDB namespace", error))?;
+        let mut store = Self {
             db_path: PathBuf::from(":memory:"),
+            db,
             memory_backend: MemoryGraphStore::new(),
-            schema_version: 3,
-        }
+            operational_backend: EmbeddedOperationalStore::new(),
+            schema_version: 4,
+            is_durable_file_backed: false,
+        };
+        store.ensure_language_specs_seeded().await?;
+        Ok(store)
     }
 
     /// Returns current schema migration version.
     pub fn schema_version(&self) -> u32 {
         self.schema_version
+    }
+
+    async fn restore_from_surreal(&self) -> Result<bool> {
+        let record: Option<PersistedStateRecord> = self
+            .db
+            .select((Self::STATE_TABLE, Self::STATE_ID))
+            .await
+            .map_err(|error| {
+                Self::storage_error("failed to load embedded SurrealDB state", error)
+            })?;
+        if let Some(record) = record {
+            self.memory_backend.restore(record.state);
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// Atomically writes the current state into the embedded SurrealDB engine.
+    pub async fn flush_to_disk(&self) -> Result<()> {
+        let record = PersistedStateRecord {
+            schema_version: self.schema_version,
+            state: self.memory_backend.snapshot(),
+        };
+        let _: Option<PersistedStateRecord> = self
+            .db
+            .upsert((Self::STATE_TABLE, Self::STATE_ID))
+            .content(record)
+            .await
+            .map_err(|error| {
+                Self::storage_error("failed to commit embedded SurrealDB state", error)
+            })?;
+        Ok(())
     }
 
     /// Validates round-trip consistency between Rust domain graph and stored graph.
@@ -548,11 +944,13 @@ impl SurrealGraphStore {
 #[async_trait]
 impl GraphStore for SurrealGraphStore {
     async fn upsert_node(&mut self, node: &GraphNodeRecord) -> Result<()> {
-        self.memory_backend.upsert_node(node).await
+        self.memory_backend.upsert_node(node).await?;
+        self.flush_to_disk().await
     }
 
     async fn add_edge(&mut self, edge: &GraphEdgeRecord) -> Result<()> {
-        self.memory_backend.add_edge(edge).await
+        self.memory_backend.add_edge(edge).await?;
+        self.flush_to_disk().await
     }
 
     async fn get_node(&self, id: &str) -> Result<Option<GraphNodeRecord>> {
@@ -566,7 +964,8 @@ impl GraphStore for SurrealGraphStore {
     async fn create_snapshot(&mut self, snapshot_id: &str, graph: &SemanticGraph) -> Result<()> {
         self.memory_backend
             .create_snapshot(snapshot_id, graph)
-            .await
+            .await?;
+        self.flush_to_disk().await
     }
 
     async fn load_snapshot(&self, snapshot_id: &str) -> Result<Option<SemanticGraph>> {
@@ -576,12 +975,35 @@ impl GraphStore for SurrealGraphStore {
     async fn diff_snapshots(&self, snap_a: &str, snap_b: &str) -> Result<GraphDiff> {
         self.memory_backend.diff_snapshots(snap_a, snap_b).await
     }
+
+    async fn upsert_esg_node(&mut self, node: &EsgNode) -> Result<()> {
+        self.memory_backend.upsert_esg_node(node).await?;
+        self.flush_to_disk().await
+    }
+
+    async fn get_esg_node(&self, id: &str) -> Result<Option<EsgNode>> {
+        self.memory_backend.get_esg_node(id).await
+    }
+
+    async fn list_esg_nodes(&self) -> Result<Vec<EsgNode>> {
+        self.memory_backend.list_esg_nodes().await
+    }
+
+    async fn add_esg_edge(&mut self, edge: &EsgEdge) -> Result<()> {
+        self.memory_backend.add_esg_edge(edge).await?;
+        self.flush_to_disk().await
+    }
+
+    async fn list_esg_edges(&self) -> Result<Vec<EsgEdge>> {
+        self.memory_backend.list_esg_edges().await
+    }
 }
 
 #[async_trait]
 impl KnowledgeStore for SurrealGraphStore {
     async fn save_case(&mut self, case: &MigrationCase) -> Result<()> {
-        self.memory_backend.save_case(case).await
+        self.memory_backend.save_case(case).await?;
+        self.flush_to_disk().await
     }
 
     async fn get_case(&self, case_id: &str) -> Result<Option<MigrationCase>> {
@@ -603,7 +1025,8 @@ impl KnowledgeStore for SurrealGraphStore {
     }
 
     async fn save_contract(&mut self, contract: &BehavioralContract) -> Result<()> {
-        self.memory_backend.save_contract(contract).await
+        self.memory_backend.save_contract(contract).await?;
+        self.flush_to_disk().await
     }
 
     async fn get_contract(&self, unit_id: &str) -> Result<Option<BehavioralContract>> {
@@ -615,11 +1038,13 @@ impl KnowledgeStore for SurrealGraphStore {
     }
 
     async fn save_verification_run(&mut self, run: &VerificationRecord) -> Result<()> {
-        self.memory_backend.save_verification_run(run).await
+        self.memory_backend.save_verification_run(run).await?;
+        self.flush_to_disk().await
     }
 
     async fn save_framework_rule(&mut self, rule: &exodus_toolchain::FrameworkRule) -> Result<()> {
-        self.memory_backend.save_framework_rule(rule).await
+        self.memory_backend.save_framework_rule(rule).await?;
+        self.flush_to_disk().await
     }
 
     async fn get_framework_registry(&self) -> Result<exodus_toolchain::FrameworkRegistry> {
@@ -632,6 +1057,172 @@ impl KnowledgeStore for SurrealGraphStore {
 
     async fn import_all(&mut self, source_dir: &Path) -> Result<ImportReport> {
         self.memory_backend.import_all(source_dir).await
+    }
+
+    async fn save_profile(&mut self, profile: &RepositoryProfile) -> Result<()> {
+        self.memory_backend.save_profile(profile).await?;
+        self.flush_to_disk().await
+    }
+
+    async fn get_profile(&self, repo_id: &str) -> Result<Option<RepositoryProfile>> {
+        self.memory_backend.get_profile(repo_id).await
+    }
+
+    async fn save_deprecation(&mut self, deprecation: &DeprecationRecord) -> Result<()> {
+        self.memory_backend.save_deprecation(deprecation).await?;
+        self.flush_to_disk().await
+    }
+
+    async fn get_deprecation(&self, id: &str) -> Result<Option<DeprecationRecord>> {
+        self.memory_backend.get_deprecation(id).await
+    }
+
+    async fn list_deprecations(&self) -> Result<Vec<DeprecationRecord>> {
+        self.memory_backend.list_deprecations().await
+    }
+}
+
+#[async_trait]
+impl TargetLanguageCatalog for SurrealGraphStore {
+    async fn get_language_spec(&self, query: &str) -> Result<Option<TargetLanguageSpecRecord>> {
+        self.memory_backend.get_language_spec(query).await
+    }
+
+    async fn list_language_specs(&self) -> Result<Vec<TargetLanguageSpecRecord>> {
+        self.memory_backend.list_language_specs().await
+    }
+
+    async fn upsert_language_spec(&mut self, spec: &TargetLanguageSpecRecord) -> Result<()> {
+        self.memory_backend.upsert_language_spec(spec).await?;
+        self.flush_to_disk().await
+    }
+
+    async fn reset_language_specs(&mut self) -> Result<()> {
+        self.memory_backend.reset_language_specs().await?;
+        self.flush_to_disk().await
+    }
+
+    async fn ensure_language_specs_seeded(&mut self) -> Result<()> {
+        self.memory_backend.ensure_language_specs_seeded().await?;
+        self.flush_to_disk().await
+    }
+}
+
+#[async_trait]
+impl OperationalStore for SurrealGraphStore {
+    async fn save_operational_item(&mut self, item: &OperationalItem) -> Result<()> {
+        self.operational_backend.save_operational_item(item).await
+    }
+
+    async fn get_operational_item(&self, id: &str) -> Result<Option<OperationalItem>> {
+        self.operational_backend.get_operational_item(id).await
+    }
+
+    async fn list_operational_items(&self) -> Result<Vec<OperationalItem>> {
+        self.operational_backend.list_operational_items().await
+    }
+
+    async fn list_operational_items_by_domain(
+        &self,
+        domain: OperationalDomainTag,
+    ) -> Result<Vec<OperationalItem>> {
+        self.operational_backend
+            .list_operational_items_by_domain(domain)
+            .await
+    }
+
+    async fn list_operational_items_by_state(
+        &self,
+        state: OperationalLifecycleState,
+    ) -> Result<Vec<OperationalItem>> {
+        self.operational_backend
+            .list_operational_items_by_state(state)
+            .await
+    }
+
+    async fn save_crm_account(&mut self, account: &CrmAccountRecord) -> Result<()> {
+        self.operational_backend.save_crm_account(account).await
+    }
+
+    async fn get_crm_account(&self, account_id: &str) -> Result<Option<CrmAccountRecord>> {
+        self.operational_backend.get_crm_account(account_id).await
+    }
+
+    async fn list_crm_accounts(&self) -> Result<Vec<CrmAccountRecord>> {
+        self.operational_backend.list_crm_accounts().await
+    }
+
+    async fn save_crm_policy(&mut self, policy: &CrmPolicyRule) -> Result<()> {
+        self.operational_backend.save_crm_policy(policy).await
+    }
+
+    async fn list_crm_policies(&self) -> Result<Vec<CrmPolicyRule>> {
+        self.operational_backend.list_crm_policies().await
+    }
+
+    async fn evaluate_crm_discount(
+        &self,
+        account_id: &str,
+        requested_discount_pct: f64,
+        requester_role: &str,
+    ) -> Result<CrmEvaluationReport> {
+        self.operational_backend
+            .evaluate_crm_discount(account_id, requested_discount_pct, requester_role)
+            .await
+    }
+
+    async fn save_taxonomy_node(&mut self, node: &TaxonomyNodeRecord) -> Result<()> {
+        self.operational_backend.save_taxonomy_node(node).await
+    }
+
+    async fn get_taxonomy_node(&self, id: &str) -> Result<Option<TaxonomyNodeRecord>> {
+        self.operational_backend.get_taxonomy_node(id).await
+    }
+
+    async fn list_taxonomy_nodes(&self) -> Result<Vec<TaxonomyNodeRecord>> {
+        self.operational_backend.list_taxonomy_nodes().await
+    }
+
+    async fn save_survey_feedback(&mut self, feedback: &SurveyFeedbackRecord) -> Result<()> {
+        self.operational_backend
+            .save_survey_feedback(feedback)
+            .await
+    }
+
+    async fn list_survey_feedbacks(&self) -> Result<Vec<SurveyFeedbackRecord>> {
+        self.operational_backend.list_survey_feedbacks().await
+    }
+
+    async fn match_feedback_to_taxonomy(
+        &self,
+        feedback_text: &str,
+    ) -> Result<Option<(TaxonomyNodeRecord, f64)>> {
+        self.operational_backend
+            .match_feedback_to_taxonomy(feedback_text)
+            .await
+    }
+
+    async fn get_sdlc_settings(&self) -> Result<SdlcIntegrationSettings> {
+        self.operational_backend.get_sdlc_settings().await
+    }
+
+    async fn save_sdlc_settings(&mut self, settings: &SdlcIntegrationSettings) -> Result<()> {
+        self.operational_backend.save_sdlc_settings(settings).await
+    }
+
+    async fn generate_pipeline_plugin_scaffold(&self) -> Result<HashMap<String, String>> {
+        self.operational_backend
+            .generate_pipeline_plugin_scaffold()
+            .await
+    }
+
+    async fn ingest_ci_failure_event(
+        &mut self,
+        event: CiFailureEventPayload,
+    ) -> Result<OperationalItem> {
+        self.operational_backend
+            .ingest_ci_failure_event(event)
+            .await
     }
 }
 
@@ -663,46 +1254,89 @@ mod tests {
 
     #[tokio::test]
     async fn test_surreal_graph_store_initialization() {
-        let store = SurrealGraphStore::open_in_memory();
-        assert_eq!(store.schema_version(), 3);
+        let store = SurrealGraphStore::open_in_memory().await.unwrap();
+        assert_eq!(store.schema_version(), 4);
+        assert!(!store.is_durable());
     }
 
     #[tokio::test]
-    async fn test_knowledge_store_framework_rules_and_export_import() {
-        let mut store = MemoryGraphStore::new();
-
-        // 1. Initial embedded default check
-        let reg = store.get_framework_registry().await.unwrap();
-        assert!(reg.get_framework(exodus_toolchain::DomainArchetype::BackendService, "rust").contains("Axum"));
-
-        // 2. Dynamic update in session for unthought-of scenario
-        store.save_framework_rule(&exodus_toolchain::FrameworkRule {
-            archetype: exodus_toolchain::DomainArchetype::BackendService,
-            target_language: "rust".to_string(),
-            recommended_framework: "Salvo + SeaORM".to_string(),
-            default_dependencies: vec!["salvo".to_string(), "sea-orm".to_string()],
-            is_user_override: true,
-            notes: Some("Session override for lightweight async web framework".to_string()),
-        }).await.unwrap();
-
-        let updated_reg = store.get_framework_registry().await.unwrap();
-        assert_eq!(
-            updated_reg.get_framework(exodus_toolchain::DomainArchetype::BackendService, "rust"),
-            "Salvo + SeaORM"
-        );
-
-        // 3. Export to temp directory
+    async fn test_surreal_file_backed_instance_reopen_durability() {
         let temp_dir = tempfile::tempdir().unwrap();
-        store.export_all(temp_dir.path()).await.unwrap();
-        assert!(temp_dir.path().join("framework_rules.json").exists());
+        let db_path = temp_dir.path().join("data/surreal");
 
-        // 4. Import into fresh store
-        let mut fresh_store = MemoryGraphStore::new();
-        fresh_store.import_all(temp_dir.path()).await.unwrap();
-        let imported_reg = fresh_store.get_framework_registry().await.unwrap();
-        assert_eq!(
-            imported_reg.get_framework(exodus_toolchain::DomainArchetype::BackendService, "rust"),
-            "Salvo + SeaORM"
+        // 1. First instance: write ESG node & deprecation record
+        {
+            let mut store = SurrealGraphStore::open(&db_path).await.unwrap();
+            assert!(store.is_durable());
+
+            let esg_node = EsgNode::new(
+                "urn:sym:pkg::test_fn",
+                exodus_core::LanguageId::new("python"),
+                exodus_core::EsgNodeKind::Function,
+                "test_fn",
+            );
+            store.upsert_esg_node(&esg_node).await.unwrap();
+
+            let dep = DeprecationRecord::new(
+                "dep-001",
+                exodus_core::LanguageId::new("python"),
+                "os.popen",
+                exodus_core::DeprecationStatus::Deprecated,
+                exodus_core::DeprecationEvidenceSource::CompilerWarning,
+            );
+            store.save_deprecation(&dep).await.unwrap();
+            // store dropped here
+        }
+
+        // 2. Second instance: open same db_path and verify retrieval
+        {
+            let store2 = SurrealGraphStore::open(&db_path).await.unwrap();
+            let loaded_node = store2.get_esg_node("urn:sym:pkg::test_fn").await.unwrap();
+            assert!(loaded_node.is_some());
+            assert_eq!(loaded_node.unwrap().name, "test_fn");
+
+            let loaded_dep = store2.get_deprecation("dep-001").await.unwrap();
+            assert!(loaded_dep.is_some());
+            assert_eq!(loaded_dep.unwrap().target_symbol, "os.popen");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_surreal_graph_store_operational_store() {
+        let mut store = SurrealGraphStore::open_in_memory().await.unwrap();
+
+        let payload = exodus_core::DomainPayload::CrmRequest(exodus_core::CrmRequestPayload::new(
+            "acc-enterprise-99",
+            "MegaCorp",
+            500_000.0,
+            20.0,
+            "Enterprise",
+            "SalesLead",
+        ));
+
+        let item = OperationalItem::new(
+            "Enterprise Renewal Discount",
+            "Customer requesting 20% discount on renewal",
+            "sales-lead",
+            payload,
         );
+
+        let id = item.id.clone();
+        store.save_operational_item(&item).await.unwrap();
+
+        let loaded = store.get_operational_item(&id).await.unwrap();
+        assert!(loaded.is_some());
+        assert_eq!(loaded.unwrap().domain_tag, OperationalDomainTag::CrmRequest);
+
+        // Verify CRM policy evaluation through SurrealGraphStore
+        let eval = store
+            .evaluate_crm_discount("acc-enterprise-99", 20.0, "SalesLead")
+            .await
+            .unwrap();
+        assert!(eval.compliant);
+
+        // Verify SDLC scaffolding through SurrealGraphStore
+        let scaffold = store.generate_pipeline_plugin_scaffold().await.unwrap();
+        assert!(scaffold.contains_key(".github/workflows/exodus-verify.yml"));
     }
 }

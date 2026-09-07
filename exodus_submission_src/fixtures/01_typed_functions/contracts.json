@@ -1,0 +1,87 @@
+[
+  {
+    "schema_version": "1.0.0",
+    "contract_id": "contract-function-math_ops-add",
+    "unit_id": "function::math_ops::add",
+    "unit_name": "add",
+    "unit_kind": "function",
+    "source_signature": "add(a: int, b: int) -> int",
+    "target_signature": "add(a: i64, b: i64) -> i64",
+    "assertions": [
+      {
+        "case_id": "basic",
+        "input": "add(2, 3)",
+        "expected": "5",
+        "oracle": "differential_execution",
+        "evidence": "differential_execution: python3 scripts/ground_fixture_contracts.py (fixtures/01_typed_functions/math_ops.py, captured 2026-08-29)"
+      },
+      {
+        "case_id": "cancels_out",
+        "input": "add(-5, 5)",
+        "expected": "0",
+        "oracle": "differential_execution",
+        "evidence": "differential_execution: python3 scripts/ground_fixture_contracts.py (fixtures/01_typed_functions/math_ops.py, captured 2026-08-29)"
+      }
+    ],
+    "verification_status": "pending"
+  },
+  {
+    "schema_version": "1.0.0",
+    "contract_id": "contract-function-math_ops-multiply_list",
+    "unit_id": "function::math_ops::multiply_list",
+    "unit_name": "multiply_list",
+    "unit_kind": "function",
+    "source_signature": "multiply_list(nums: list[int], factor: int) -> list[int]",
+    "target_signature": "multiply_list(nums: Vec<i64>, factor: i64) -> Vec<i64>",
+    "assertions": [
+      {
+        "case_id": "basic",
+        "input": "multiply_list(vec![1, 2, 3], 2)",
+        "expected": "[2, 4, 6]",
+        "oracle": "differential_execution",
+        "evidence": "differential_execution: python3 scripts/ground_fixture_contracts.py (fixtures/01_typed_functions/math_ops.py, captured 2026-08-29)"
+      },
+      {
+        "case_id": "empty_input",
+        "input": "multiply_list(vec![], 5)",
+        "expected": "[]",
+        "oracle": "differential_execution",
+        "evidence": "differential_execution: python3 scripts/ground_fixture_contracts.py (fixtures/01_typed_functions/math_ops.py, captured 2026-08-29)"
+      }
+    ],
+    "verification_status": "pending"
+  },
+  {
+    "schema_version": "1.0.0",
+    "contract_id": "contract-function-math_ops-is_positive",
+    "unit_id": "function::math_ops::is_positive",
+    "unit_name": "is_positive",
+    "unit_kind": "function",
+    "source_signature": "is_positive(val: int) -> bool",
+    "target_signature": "is_positive(val: i64) -> bool",
+    "assertions": [
+      {
+        "case_id": "positive",
+        "input": "is_positive(5)",
+        "expected": "true",
+        "oracle": "differential_execution",
+        "evidence": "differential_execution: python3 scripts/ground_fixture_contracts.py (fixtures/01_typed_functions/math_ops.py, captured 2026-08-29)"
+      },
+      {
+        "case_id": "negative",
+        "input": "is_positive(-1)",
+        "expected": "false",
+        "oracle": "differential_execution",
+        "evidence": "differential_execution: python3 scripts/ground_fixture_contracts.py (fixtures/01_typed_functions/math_ops.py, captured 2026-08-29)"
+      },
+      {
+        "case_id": "boundary_zero",
+        "input": "is_positive(0)",
+        "expected": "false",
+        "oracle": "differential_execution",
+        "evidence": "differential_execution: python3 scripts/ground_fixture_contracts.py (fixtures/01_typed_functions/math_ops.py, captured 2026-08-29)"
+      }
+    ],
+    "verification_status": "pending"
+  }
+]
