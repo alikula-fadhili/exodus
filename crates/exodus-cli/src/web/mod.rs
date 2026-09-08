@@ -2,8 +2,6 @@
 //!
 //! Exposes an embedded local control plane and human-in-the-loop review dashboard.
 
-pub mod assets;
-
 use axum::{
     extract::{Path, State},
     http::{header, StatusCode},
@@ -177,17 +175,20 @@ pub async fn start_server(
 // --- Handler Implementations ---
 
 async fn serve_index() -> Html<&'static str> {
-    Html(assets::INDEX_HTML)
+    Html("<!DOCTYPE html><html><head><title>Project Exodus API</title><style>body{background:#09090b;color:#f8fafc;font-family:system-ui,-apple-system,sans-serif;padding:40px;text-align:center}h1{color:#f1f5f9;font-size:24px}p{color:#94a3b8;font-size:14px}code{background:#18181b;padding:3px 8px;border-radius:4px;border:1px solid #27272a;color:#e2e8f0}</style></head><body><h1>Project Exodus API Service</h1><p>The native Mission Control application is provided via <code>exodus-desktop</code>.</p><p>REST endpoints are active under <code>/api/operations</code>, <code>/api/graph</code>, and <code>/api/sdlc/...</code></p></body></html>")
 }
 
 async fn serve_css() -> impl IntoResponse {
-    ([(header::CONTENT_TYPE, "text/css")], assets::STYLE_CSS)
+    (
+        [(header::CONTENT_TYPE, "text/css")],
+        "/* Use native exodus-desktop application */",
+    )
 }
 
 async fn serve_js() -> impl IntoResponse {
     (
         [(header::CONTENT_TYPE, "application/javascript")],
-        assets::APP_JS,
+        "// Use native exodus-desktop application",
     )
 }
 

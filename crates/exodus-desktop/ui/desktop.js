@@ -1,12 +1,17 @@
-// Project Exodus Mission Control — Tauri Desktop Frontend Logic
+// Project Exodus Mission Control — Native Desktop Logic
 
-// Tauri v2 invoke helper with REST API fallback for dual desktop & browser execution
+// Tauri v2 invoke helper with REST API fallback
 const invoke = async (cmd, args = {}) => {
   if (window.__TAURI__?.core?.invoke) {
     return await window.__TAURI__.core.invoke(cmd, args);
   }
+  if (window.__TAURI__?.invoke) {
+    return await window.__TAURI__.invoke(cmd, args);
+  }
+  if (window.__TAURI_INTERNALS__?.invoke) {
+    return await window.__TAURI_INTERNALS__.invoke(cmd, args);
+  }
   
-  // REST API Fallback for web browser / standalone server mode
   try {
     switch (cmd) {
       case 'list_operations':
@@ -14,7 +19,7 @@ const invoke = async (cmd, args = {}) => {
         const res = await fetch('/api/operations');
         return await res.json();
       }
-      case 'get_item_details': {
+      case 'get_operation': {
         const res = await fetch(`/api/operations/${args.id}`);
         return await res.json();
       }
@@ -26,10 +31,6 @@ const invoke = async (cmd, args = {}) => {
         });
         return await res.json();
       }
-      case 'sandbox_operation': {
-        const res = await fetch(`/api/operations/${args.id}/sandbox`, { method: 'POST' });
-        return await res.json();
-      }
       case 'verify_operation': {
         const res = await fetch(`/api/operations/${args.id}/verify`, { method: 'POST' });
         return await res.json();
@@ -38,7 +39,7 @@ const invoke = async (cmd, args = {}) => {
         const res = await fetch(`/api/operations/${args.id}/approve`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ approver: args.approver || 'hitl_operator', notes: args.notes || '' }),
+          body: JSON.stringify({ approver: args.approver || 'operator', notes: args.notes || '' }),
         });
         return await res.json();
       }
@@ -46,68 +47,48 @@ const invoke = async (cmd, args = {}) => {
         const res = await fetch(`/api/operations/${args.id}/reject`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ actor: args.actor || 'hitl_operator', reason: args.reason || '' }),
+          body: JSON.stringify({ actor: args.actor || 'operator', reason: args.reason || '' }),
         });
         return await res.json();
       }
-      case 'promote_operation': {
-        const res = await fetch(`/api/operations/${args.id}/promote`, { method: 'POST' });
-        return await res.json();
-      }
-      case 'update_item_prompt': {
-        const res = await fetch(`/api/operations/${args.id}/prompt`, {
+      case 'advance_card_stage': {
+        const res = await fetch(`/api/operations/${args.id}/advance`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: args.prompt, system_goal: args.system_goal || null }),
+          body: JSON.stringify({ target_stage: args.target_stage }),
         });
         return await res.json();
       }
-      case 'update_item_tags': {
-        const res = await fetch(`/api/operations/${args.id}/tags`, {
+      case 'scan_local_repository': {
+        const res = await fetch('/api/project/scan', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tags: args.tags || [], graph_mappings: args.graph_mappings || [] }),
+          body: JSON.stringify(args),
         });
         return await res.json();
       }
-      case 'execute_harness_unit': {
-        const res = await fetch(`/api/operations/${args.id}/harness/execute`, {
+      case 'setup_project_workflow': {
+        const res = await fetch('/api/project/setup', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: args.prompt || null, system_goal: args.system_goal || null }),
+          body: JSON.stringify(args),
         });
         return await res.json();
       }
-      case 'get_harness_environment': {
-        const res = await fetch('/api/harness/environment');
+      case 'get_project_structure': {
+        const res = await fetch('/api/project/structure');
         return await res.json();
       }
-      case 'get_kernel_plugins': {
-        const res = await fetch('/api/plugins');
+      case 'get_agent_api_keys': {
+        const res = await fetch('/api/settings/keys');
         return await res.json();
       }
-      case 'get_maker_plugins': {
-        const res = await fetch('/api/plugins/maker');
-        return await res.json();
-      }
-      case 'save_maker_plugin': {
-        const res = await fetch('/api/plugins/maker', {
+      case 'save_agent_api_keys': {
+        const res = await fetch('/api/settings/keys', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(args.plugin),
+          body: JSON.stringify(args.keys),
         });
-        return await res.json();
-      }
-      case 'delete_maker_plugin': {
-        const res = await fetch(`/api/plugins/maker/${args.id}`, { method: 'DELETE' });
-        return await res.json();
-      }
-      case 'get_sdlc_settings': {
-        const res = await fetch('/api/sdlc/settings');
-        return await res.json();
-      }
-      case 'get_sdlc_scaffold': {
-        const res = await fetch('/api/sdlc/scaffold');
         return await res.json();
       }
       case 'get_esg_topology': {
@@ -115,12 +96,11 @@ const invoke = async (cmd, args = {}) => {
         return await res.json();
       }
       default:
-        console.warn(`[Unknown invoke command in web client] ${cmd}`, args);
+        console.warn(`[Unknown invoke command] ${cmd}`, args);
         return null;
     }
   } catch (err) {
-    console.error(`[Invoke REST error] ${cmd}:`, err);
-    throw err;
+    console.error(`[Invoke Error] ${cmd}:`, err);
   }
 };
 
@@ -128,282 +108,101 @@ let currentItems = [];
 let selectedItemId = null;
 let currentFilter = 'all';
 let boardFilter = 'all';
+let boardSearchQuery = '';
 let isAutoPipelineRunning = false;
 let recentlyMovedId = null;
-let activeInlineDraftCol = null;
-let activeTagModalData = null; // { itemId, tagIndex, tagName, mappedSymbols }
+let activeTab = 'board';
 
 // ============================================================================
-// Theme Management Engine
+// Navigation & Tab Switching
 // ============================================================================
-function initTheme() {
-  const savedTheme = localStorage.getItem('exodus_theme') || 'grayscale-gold';
-  document.documentElement.setAttribute('data-theme', savedTheme);
-  const selector = document.getElementById('theme-selector');
-  if (selector) {
-    selector.value = savedTheme;
-    selector.addEventListener('change', (e) => {
-      const theme = e.target.value;
-      document.documentElement.setAttribute('data-theme', theme);
-      localStorage.setItem('exodus_theme', theme);
-      showToast(`Theme switched to ${e.target.options[e.target.selectedIndex].text}`, 'info');
-      // Redraw canvas if visible
-      if (!document.getElementById('view-graph').classList.contains('hidden')) {
-        renderEsgCanvas();
+function initNavigation() {
+  const tabs = [
+    { id: 'tab-btn-board', view: 'view-board', name: 'board' },
+    { id: 'tab-btn-structure', view: 'view-structure', name: 'structure' },
+    { id: 'tab-btn-queue', view: 'view-queue', name: 'queue' },
+    { id: 'tab-btn-graph', view: 'view-graph', name: 'graph' },
+  ];
+
+  tabs.forEach(t => {
+    const btn = document.getElementById(t.id);
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      tabs.forEach(other => {
+        document.getElementById(other.id)?.classList.remove('active');
+        document.getElementById(other.view)?.classList.add('hidden');
+      });
+      btn.classList.add('active');
+      document.getElementById(t.view)?.classList.remove('hidden');
+      activeTab = t.name;
+
+      if (t.name === 'structure') {
+        loadProjectStructure();
+      } else if (t.name === 'graph') {
+        loadChangeGraph();
+      } else if (t.name === 'board') {
+        renderBoard();
+      } else if (t.name === 'queue') {
+        renderQueueList();
       }
     });
-  }
-}
-
-// Toast Notifications
-function showToast(message, type = 'info') {
-  const container = document.getElementById('toast-container');
-  if (!container) return;
-  const toast = document.createElement('div');
-  toast.className = `toast ${type}`;
-  const icon = type === 'success' ? '✓' : type === 'error' ? '✗' : 'ℹ';
-  toast.innerHTML = `<span style="font-weight: bold;">${icon}</span><span>${escapeHtml(message)}</span>`;
-  container.appendChild(toast);
-  setTimeout(() => {
-    toast.style.opacity = '0';
-    toast.style.transform = 'translateY(12px) scale(0.95)';
-    setTimeout(() => toast.remove(), 250);
-  }, 3500);
-}
-
-// ============================================================================
-// Navigation Tabs
-// ============================================================================
-document.getElementById('tab-btn-board')?.addEventListener('click', () => {
-  document.getElementById('tab-btn-board').classList.add('active');
-  document.getElementById('tab-btn-queue').classList.remove('active');
-  document.getElementById('tab-btn-graph').classList.remove('active');
-  document.getElementById('view-board').classList.remove('hidden');
-  document.getElementById('view-queue').classList.add('hidden');
-  document.getElementById('view-graph').classList.add('hidden');
-  renderBoard();
-});
-
-document.getElementById('tab-btn-queue')?.addEventListener('click', () => {
-  document.getElementById('tab-btn-queue').classList.add('active');
-  document.getElementById('tab-btn-board').classList.remove('active');
-  document.getElementById('tab-btn-graph').classList.remove('active');
-  document.getElementById('view-queue').classList.remove('hidden');
-  document.getElementById('view-board').classList.add('hidden');
-  document.getElementById('view-graph').classList.add('hidden');
-});
-
-document.getElementById('tab-btn-graph')?.addEventListener('click', () => {
-  document.getElementById('tab-btn-graph').classList.add('active');
-  document.getElementById('tab-btn-board').classList.remove('active');
-  document.getElementById('tab-btn-queue').classList.remove('active');
-  document.getElementById('view-graph').classList.remove('hidden');
-  document.getElementById('view-board').classList.add('hidden');
-  document.getElementById('view-queue').classList.add('hidden');
-  renderEsgCanvas();
-});
-
-// Board Toolbar Filters
-document.querySelectorAll('.board-filters .filter-chip').forEach(chip => {
-  chip.addEventListener('click', (e) => {
-    document.querySelectorAll('.board-filters .filter-chip').forEach(c => c.classList.remove('active'));
-    e.target.classList.add('active');
-    boardFilter = e.target.getAttribute('data-filter');
-    renderBoard();
   });
-});
-
-// Auto-Run Pipeline Simulation
-document.getElementById('btn-auto-pipeline')?.addEventListener('click', async () => {
-  if (isAutoPipelineRunning) return;
-  isAutoPipelineRunning = true;
-  const btn = document.getElementById('btn-auto-pipeline');
-  btn.classList.add('btn-primary-highlight');
-  btn.innerHTML = `
-    <span class="pulse-dot"></span>
-    <span>Simulating Pipeline...</span>
-  `;
-
-  showToast('Starting automated pipeline execution...', 'info');
-
-  try {
-    // 1. Advance Captured -> In Sandbox -> Tests Passing
-    for (const item of currentItems) {
-      const state = item.state.toLowerCase();
-      if (state === 'captured') {
-        recentlyMovedId = item.id;
-        await invoke('verify_operation', { id: item.id });
-        await fetchQueue();
-        await new Promise(r => setTimeout(r, 1000));
-      }
-    }
-
-    // 2. Advance Verified -> Approved
-    for (const item of currentItems) {
-      const state = item.state.toLowerCase();
-      if (state === 'contract_verified' || state === 'contractverified') {
-        recentlyMovedId = item.id;
-        await invoke('approve_operation', {
-          id: item.id,
-          approver: 'pipeline_bot',
-          notes: 'Auto-approved by CI Pipeline'
-        });
-        await fetchQueue();
-        await new Promise(r => setTimeout(r, 1000));
-      }
-    }
-
-    showToast('Pipeline execution simulation complete', 'success');
-  } catch (err) {
-    showToast('Pipeline execution paused: ' + err, 'error');
-  } finally {
-    isAutoPipelineRunning = false;
-    btn.classList.remove('btn-primary-highlight');
-    btn.innerHTML = `
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-      <span>Auto-Run Pipeline</span>
-    `;
-    recentlyMovedId = null;
-    renderBoard();
-  }
-});
+}
 
 // ============================================================================
-// Board Configuration State & Engine
+// Board View Logic (Linear / Notion Style Kanban)
 // ============================================================================
-const DEFAULT_BOARD_CONFIG = [
-  { id: 'captured', label: 'Triggered', relation: 'captured', visible: true, dot: 'dot-rose', wipLimit: 0 },
-  { id: 'sandboxed', label: 'In Sandbox', relation: 'sandboxed', visible: true, dot: 'dot-blue', wipLimit: 0 },
-  { id: 'verified', label: 'Tests Passing', relation: 'verified', visible: true, dot: 'dot-emerald', wipLimit: 0 },
-  { id: 'approved', label: 'Approved', relation: 'approved', visible: true, dot: 'dot-amber', wipLimit: 0 },
-  { id: 'promoted', label: 'Applied', relation: 'promoted', visible: true, dot: 'dot-purple', wipLimit: 0 },
+const DEFAULT_STAGES = [
+  { id: 'stage-backlog', label: 'Backlog', relation: 'captured', dot: 'dot-blue', wipLimit: 0, visible: true },
+  { id: 'stage-analyzing', label: 'In Sandbox', relation: 'sandboxed', dot: 'dot-amber', wipLimit: 4, visible: true },
+  { id: 'stage-testing', label: 'Verified', relation: 'verified', dot: 'dot-cyan', wipLimit: 3, visible: true },
+  { id: 'stage-approved', label: 'Approved', relation: 'approved', dot: 'dot-emerald', wipLimit: 0, visible: true },
+  { id: 'stage-done', label: 'In Master', relation: 'promoted', dot: 'dot-purple', wipLimit: 0, visible: true },
 ];
 
 function getBoardConfig() {
   try {
     const saved = localStorage.getItem('exodus_board_config_v2');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-    }
+    if (saved) return JSON.parse(saved);
   } catch (_) {}
-  return JSON.parse(JSON.stringify(DEFAULT_BOARD_CONFIG));
+  return DEFAULT_STAGES;
 }
 
 function saveBoardConfig(config) {
   localStorage.setItem('exodus_board_config_v2', JSON.stringify(config));
 }
 
-// Open / Close Board Config Modal
-document.getElementById('btn-config-board')?.addEventListener('click', () => {
-  openBoardConfigModal();
-});
-document.getElementById('btn-close-board-config')?.addEventListener('click', () => {
-  document.getElementById('modal-board-config')?.classList.add('hidden');
-});
-document.getElementById('btn-reset-board-config')?.addEventListener('click', () => {
-  saveBoardConfig(DEFAULT_BOARD_CONFIG);
-  openBoardConfigModal();
-  renderBoard();
-  showToast('Board configuration reset to defaults', 'info');
-});
-document.getElementById('btn-save-board-config')?.addEventListener('click', () => {
-  const rows = document.querySelectorAll('.stage-config-row');
-  const currentConfig = getBoardConfig();
-  const newConfig = [];
-
-  rows.forEach(row => {
-    const stageId = row.dataset.stageId;
-    const nameInput = row.querySelector('.stage-name-input');
-    const relationSelect = row.querySelector('.stage-relation-select');
-    const wipInput = row.querySelector('.stage-wip-input');
-    const visibleCheck = row.querySelector('.stage-visible-check');
-
-    const original = currentConfig.find(c => c.id === stageId) || {};
-    newConfig.push({
-      id: stageId,
-      label: nameInput.value.trim() || original.label || stageId,
-      relation: relationSelect.value,
-      visible: visibleCheck.checked,
-      dot: original.dot || 'dot-blue',
-      wipLimit: parseInt(wipInput.value, 10) || 0,
-    });
-  });
-
-  saveBoardConfig(newConfig);
-  document.getElementById('modal-board-config')?.classList.add('hidden');
-  renderBoard();
-  showToast('Board configuration saved', 'success');
-});
-
-function openBoardConfigModal() {
-  const modal = document.getElementById('modal-board-config');
-  const list = document.getElementById('stage-config-list');
-  if (!modal || !list) return;
-
-  const config = getBoardConfig();
-  list.innerHTML = config.map((stage, idx) => `
-    <div class="stage-config-row" data-stage-id="${stage.id}">
-      <div class="stage-reorder-btns">
-        <button class="stage-reorder-btn" onclick="window.reorderBoardStage(${idx}, -1)" ${idx === 0 ? 'disabled style="opacity:0.3"' : ''}>▲</button>
-        <button class="stage-reorder-btn" onclick="window.reorderBoardStage(${idx}, 1)" ${idx === config.length - 1 ? 'disabled style="opacity:0.3"' : ''}>▼</button>
-      </div>
-      <input type="text" class="stage-name-input form-input" value="${escapeHtml(stage.label)}" placeholder="Stage Name">
-      <select class="stage-relation-select form-select">
-        <option value="captured" ${stage.relation === 'captured' ? 'selected' : ''}>Triggered (Captured)</option>
-        <option value="sandboxed" ${stage.relation === 'sandboxed' ? 'selected' : ''}>Sandbox (Isolated)</option>
-        <option value="verified" ${stage.relation === 'verified' ? 'selected' : ''}>Tests Passing (Gate)</option>
-        <option value="approved" ${stage.relation === 'approved' ? 'selected' : ''}>Approved (Sign-Off)</option>
-        <option value="promoted" ${stage.relation === 'promoted' ? 'selected' : ''}>Applied (Merged)</option>
-      </select>
-      <div style="display: flex; align-items: center; gap: 4px;">
-        <span style="font-size: 10px; color: var(--text-muted);">WIP:</span>
-        <input type="number" class="stage-wip-input form-input" min="0" max="99" value="${stage.wipLimit || 0}" title="0 = Unlimited">
-      </div>
-      <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; cursor: pointer;">
-        <input type="checkbox" class="stage-visible-check" ${stage.visible ? 'checked' : ''}> Show
-      </label>
-    </div>
-  `).join('');
-
-  modal.classList.remove('hidden');
-}
-
-window.reorderBoardStage = (idx, direction) => {
-  const config = getBoardConfig();
-  const targetIdx = idx + direction;
-  if (targetIdx < 0 || targetIdx >= config.length) return;
-  const temp = config[idx];
-  config[idx] = config[targetIdx];
-  config[targetIdx] = temp;
-  saveBoardConfig(config);
-  openBoardConfigModal();
-};
-
-// ============================================================================
-// Board Renderer with Dynamic Stages & Inline Card Creation
-// ============================================================================
 function renderBoard() {
   const boardGrid = document.getElementById('board-grid');
   if (!boardGrid) return;
 
   const config = getBoardConfig();
   const visibleStages = config.filter(s => s.visible);
+  const query = (boardSearchQuery || '').toLowerCase().trim();
 
-  const filtered = boardFilter === 'all'
-    ? currentItems
-    : currentItems.filter(i => {
-        const itemTags = getItemTags(i);
-        return itemTags.includes(boardFilter) || i.domain_tag === boardFilter;
-      });
+  const filtered = currentItems.filter(i => {
+    // Tag / Domain filter
+    if (boardFilter !== 'all') {
+      const itemTags = i.tags || [i.domain_tag || '#prod-bug'];
+      const matches = itemTags.includes(boardFilter) || i.domain_tag === boardFilter;
+      if (!matches) return false;
+    }
+    // Search query filter
+    if (query) {
+      const titleMatch = (i.title || '').toLowerCase().includes(query);
+      const descMatch = (i.description || '').toLowerCase().includes(query);
+      const idMatch = (i.id || '').toLowerCase().includes(query);
+      const actorMatch = (i.requester || '').toLowerCase().includes(query);
+      return titleMatch || descMatch || idMatch || actorMatch;
+    }
+    return true;
+  });
 
-  // Group items by relation
   const buckets = {};
   visibleStages.forEach(s => { buckets[s.id] = []; });
 
   filtered.forEach(item => {
     const s = (item.state || '').toLowerCase();
-    // Map state to stage relation
     let targetStage = visibleStages.find(stage => {
       if (stage.relation === 'captured' && (s === 'captured' || s === '')) return true;
       if (stage.relation === 'sandboxed' && s === 'sandboxed') return true;
@@ -416,223 +215,69 @@ function renderBoard() {
     if (!targetStage && visibleStages.length > 0) {
       targetStage = visibleStages[0];
     }
-
     if (targetStage && buckets[targetStage.id]) {
       buckets[targetStage.id].push(item);
     }
   });
 
-  // Generate HTML for visible columns
-  boardGrid.style.gridTemplateColumns = `repeat(${visibleStages.length}, minmax(290px, 1fr))`;
+  boardGrid.style.gridTemplateColumns = `repeat(${visibleStages.length}, minmax(280px, 1fr))`;
   boardGrid.innerHTML = visibleStages.map(stage => {
     const itemsInStage = buckets[stage.id] || [];
     const count = itemsInStage.length;
     const isWipExceeded = stage.wipLimit > 0 && count > stage.wipLimit;
 
     return `
-      <div class="board-col kanban-col" data-stage-id="${stage.id}" data-relation="${stage.relation}" id="col-${stage.id}">
+      <div class="kanban-col" data-stage-id="${stage.id}" data-relation="${stage.relation}" id="col-${stage.id}">
         <div class="col-header">
           <div class="col-title-group">
             <span class="col-dot ${stage.dot || 'dot-blue'}"></span>
             <span class="col-title">${escapeHtml(stage.label)}</span>
-            <span class="col-count" id="count-${stage.id}">${count}</span>
-            ${isWipExceeded ? `<span class="col-wip-pill">WIP ${count}/${stage.wipLimit}</span>` : ''}
+            <span class="col-count">${count}</span>
+            ${isWipExceeded ? `<span class="text-[9px] font-bold text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20">WIP ${count}/${stage.wipLimit}</span>` : ''}
           </div>
-          <button class="col-add-btn" onclick="window.startInlineDraft('${stage.id}')" title="Create task in this stage">+</button>
+          <button class="text-zinc-400 hover:text-white text-sm px-1.5 py-0.5 rounded hover:bg-zinc-800" onclick="window.openNewTaskModal('${stage.relation}')" title="Create task in this stage">+</button>
         </div>
 
-        <div class="col-cards" id="cards-${stage.id}">
-          ${itemsInStage.length === 0 && activeInlineDraftCol !== stage.id
-            ? '<div class="empty-col-placeholder">Click space to create a task</div>'
+        <div class="col-cards" id="cards-${stage.id}" ondragover="window.handleDragOver(event)" ondrop="window.handleDrop('${stage.relation}', event)">
+          ${itemsInStage.length === 0
+            ? '<div class="text-center py-6 text-xs text-zinc-600 italic">No tasks in this stage</div>'
             : itemsInStage.map(item => renderBoardCard(item, stage.relation)).join('')}
-          
-          ${activeInlineDraftCol === stage.id ? renderInlineDraftCard(stage.id) : ''}
-        </div>
-
-        <div style="padding: 0 12px 10px;">
-          <button class="board-add-card-btn w-full" onclick="window.startInlineDraft('${stage.id}')">
-            <span>+ Add Task</span>
-          </button>
         </div>
       </div>
     `;
   }).join('');
-
-  // Attach Drag & Drop listeners to columns
-  visibleStages.forEach(stage => {
-    const colEl = document.getElementById(`col-${stage.id}`);
-    if (colEl) {
-      colEl.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        colEl.classList.add('drag-over');
-      });
-      colEl.addEventListener('dragleave', () => {
-        colEl.classList.remove('drag-over');
-      });
-      colEl.addEventListener('drop', async (e) => {
-        e.preventDefault();
-        colEl.classList.remove('drag-over');
-        const itemId = e.dataTransfer.getData('text/plain');
-        if (itemId) {
-          await handleDropOnStage(itemId, stage.relation);
-        }
-      });
-
-      // Click empty space in cards container to trigger inline creation
-      const cardsContainer = document.getElementById(`cards-${stage.id}`);
-      if (cardsContainer) {
-        cardsContainer.addEventListener('click', (e) => {
-          if (e.target === cardsContainer || e.target.classList.contains('empty-col-placeholder')) {
-            window.startInlineDraft(stage.id);
-          }
-        });
-      }
-    }
-  });
-
-  // Attach Drag listeners to cards
-  document.querySelectorAll('.board-card, .kanban-card').forEach(card => {
-    card.addEventListener('dragstart', (e) => {
-      e.dataTransfer.setData('text/plain', card.dataset.id);
-      card.classList.add('dragging');
-    });
-    card.addEventListener('dragend', () => {
-      card.classList.remove('dragging');
-    });
-  });
-
-  // Auto-focus input if inline draft active
-  if (activeInlineDraftCol) {
-    const input = document.getElementById('inline-draft-title');
-    if (input) input.focus();
-  }
 }
 
-// Inline Draft Card HTML
-function renderInlineDraftCard(stageId) {
-  return `
-    <div class="board-inline-draft" id="active-inline-draft" onclick="event.stopPropagation()">
-      <input type="text" id="inline-draft-title" class="inline-draft-input" placeholder="Task Title..." onkeydown="window.handleInlineDraftKey(event, '${stageId}')">
-      <textarea id="inline-draft-prompt" class="inline-draft-textarea" rows="2" placeholder="Unit goal or developer prompt (Optional)" onkeydown="window.handleInlineDraftKey(event, '${stageId}')"></textarea>
-      
-      <div class="inline-draft-actions">
-        <select id="inline-draft-domain" class="form-select" style="padding: 3px 22px 3px 6px; font-size: 11px;">
-          <option value="#prod-bug">Engineering (#prod-bug)</option>
-          <option value="#crm-request">Commercial (#crm-request)</option>
-          <option value="#survey-mapping">Feedback (#survey-mapping)</option>
-        </select>
-        <div class="inline-draft-btns">
-          <button class="btn btn-secondary btn-sm" onclick="window.cancelInlineDraft(event)">Cancel</button>
-          <button class="btn btn-primary btn-sm" onclick="window.commitInlineDraft('${stageId}')">Add Task</button>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-window.startInlineDraft = (stageId) => {
-  activeInlineDraftCol = stageId;
-  renderBoard();
-};
-
-window.cancelInlineDraft = (e) => {
-  if (e) e.stopPropagation();
-  activeInlineDraftCol = null;
-  renderBoard();
-};
-
-window.handleInlineDraftKey = (e, stageId) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    window.commitInlineDraft(stageId);
-  } else if (e.key === 'Escape') {
-    window.cancelInlineDraft(e);
-  }
-};
-
-window.commitInlineDraft = async (stageId) => {
-  const titleInput = document.getElementById('inline-draft-title');
-  const promptInput = document.getElementById('inline-draft-prompt');
-  const domainSelect = document.getElementById('inline-draft-domain');
-
-  const title = titleInput?.value.trim();
-  if (!title) {
-    showToast('Please enter a task title', 'error');
-    return;
-  }
-
-  const prompt = promptInput?.value.trim() || title;
-  const domain_tag = domainSelect?.value || '#prod-bug';
-
-  try {
-    const config = getBoardConfig();
-    const stage = config.find(s => s.id === stageId);
-
-    const created = await invoke('ingest_operation', {
-      title,
-      description: prompt,
-      requester: 'board_engineer',
-      domain_tag,
-      payload: null,
-      prompt,
-      system_goal: 'Modernize repository and eliminate behavioral regressions through atomic unit gates',
-      tags: [domain_tag]
-    });
-
-    // If created in a later stage than captured, advance it immediately
-    if (stage && stage.relation !== 'captured' && created?.id) {
-      if (stage.relation === 'sandboxed' || stage.relation === 'verified') {
-        await invoke('verify_operation', { id: created.id });
-      } else if (stage.relation === 'approved' || stage.relation === 'promoted') {
-        await invoke('verify_operation', { id: created.id });
-        await invoke('approve_operation', { id: created.id, approver: 'board_user', notes: 'Created directly on board' });
-      }
-    }
-
-    activeInlineDraftCol = null;
-    showToast(`Created task: ${title}`, 'success');
-    await fetchQueue();
-  } catch (err) {
-    showToast('Failed to create task: ' + err, 'error');
-  }
-};
-
-// Render Individual Board Card
+// Render Individual Board Card (No Emojis, Clean Sizing)
 function renderBoardCard(item, stageRelation) {
   const isJustMoved = recentlyMovedId === item.id;
   const shortKey = item.id.length > 8 ? item.id.substring(item.id.length - 6).toUpperCase() : item.id.toUpperCase();
-  const tags = getItemTags(item);
+  const tags = item.tags || [item.domain_tag || '#prod-bug'];
   const promptPreview = item.prompt ? item.prompt.trim() : '';
 
   let actionBtn = '';
   if (stageRelation === 'captured') {
-    actionBtn = `<button class="card-action-btn" onclick="window.advanceTask('${item.id}', 'verify', event)">⚡ Run Tests</button>`;
+    actionBtn = `<button class="card-action-btn" onclick="window.advanceTask('${item.id}', 'verified', event)">Verify</button>`;
   } else if (stageRelation === 'sandboxed') {
-    actionBtn = `<button class="card-action-btn" onclick="window.advanceTask('${item.id}', 'verify', event)">▶ Run Tests</button>`;
+    actionBtn = `<button class="card-action-btn" onclick="window.advanceTask('${item.id}', 'verified', event)">Verify</button>`;
   } else if (stageRelation === 'verified') {
-    actionBtn = `<button class="card-action-btn btn-promote" onclick="window.advanceTask('${item.id}', 'approve', event)">✓ Approve</button>`;
+    actionBtn = `<button class="card-action-btn btn-promote" onclick="window.advanceTask('${item.id}', 'approved', event)">Approve</button>`;
   } else if (stageRelation === 'approved') {
-    actionBtn = `<button class="card-action-btn btn-promote" onclick="window.advanceTask('${item.id}', 'promote', event)">🚀 Apply</button>`;
+    actionBtn = `<button class="card-action-btn btn-promote" onclick="window.advanceTask('${item.id}', 'promoted', event)">Apply</button>`;
   } else if (stageRelation === 'promoted') {
-    actionBtn = `<span style="font-size: 10px; color: var(--accent-emerald); font-weight: 700;">✓ In master</span>`;
+    actionBtn = `<span class="text-[10px] font-bold text-emerald-400">In master</span>`;
   }
 
   return `
-    <div class="board-card kanban-card ${isJustMoved ? 'just-moved' : ''}" 
+    <div class="kanban-card ${isJustMoved ? 'just-moved' : ''}" 
          draggable="true" 
          data-id="${item.id}"
+         ondragstart="window.handleDragStart('${item.id}', event)"
          onclick="window.openCardDetail('${item.id}')">
       <div class="card-top">
         <span class="card-key">${shortKey}</span>
         <div class="card-tags">
-          ${tags.map((t, idx) => `
-            <span class="tag-chip ${hasGraphMapping(item, t) ? 'has-graph' : ''}" 
-                  onclick="window.openTagMappingModal('${item.id}', ${idx}, '${escapeHtml(t)}', event)"
-                  title="Click to edit tag or view graph mapping">
-              ${escapeHtml(t)}
-            </span>
-          `).join('')}
-          <button class="tag-chip-add" onclick="window.promptAddTag('${item.id}', event)" title="Add tag">+</button>
+          ${tags.map(t => `<span class="tag-chip">${escapeHtml(t)}</span>`).join('')}
         </div>
       </div>
 
@@ -641,15 +286,13 @@ function renderBoardCard(item, stageRelation) {
 
       ${promptPreview ? `
         <div class="card-prompt-badge" title="${escapeHtml(promptPreview)}">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-          <span class="truncate">Unit: ${escapeHtml(promptPreview)}</span>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+          <span class="truncate">${escapeHtml(promptPreview)}</span>
         </div>
       ` : ''}
 
       <div class="card-footer">
-        <div class="card-actor">
-          <span>👤 ${escapeHtml(item.requester)}</span>
-        </div>
+        <div class="card-actor">${escapeHtml(item.requester)}</div>
         <div class="card-actions">
           ${actionBtn}
         </div>
@@ -658,1171 +301,472 @@ function renderBoardCard(item, stageRelation) {
   `;
 }
 
-// Helper: Tag and Graph Mapping lookups
-function getItemTags(item) {
-  if (Array.isArray(item.tags) && item.tags.length > 0) return item.tags;
-  // LocalStorage custom tag store fallback
-  const localTagStore = getLocalTagsStore();
-  if (localTagStore[item.id]?.tags) return localTagStore[item.id].tags;
-  return [item.domain_tag || '#prod-bug'];
-}
-
-function getItemGraphMappings(item) {
-  if (Array.isArray(item.graph_mappings) && item.graph_mappings.length > 0) return item.graph_mappings;
-  const localTagStore = getLocalTagsStore();
-  return localTagStore[item.id]?.graph_mappings || [
-    item.payload?.data?.target_file || 'crates/auth/token.rs',
-    'verify_token'
-  ];
-}
-
-function hasGraphMapping(item, tag) {
-  const mappings = getItemGraphMappings(item);
-  return mappings.length > 0;
-}
-
-function getLocalTagsStore() {
-  try {
-    return JSON.parse(localStorage.getItem('exodus_task_tags_v1') || '{}');
-  } catch (_) {
-    return {};
-  }
-}
-
-function saveLocalTagsStore(store) {
-  localStorage.setItem('exodus_task_tags_v1', JSON.stringify(store));
-}
-
-// Add Tag prompt
-window.promptAddTag = async (itemId, e) => {
+// Stage Advancement Handler
+window.advanceTask = async (itemId, targetStage, e) => {
   if (e) e.stopPropagation();
-  const tagName = prompt('Enter new tag (e.g. #auth, #security, #p0-bug):');
-  if (!tagName || !tagName.trim()) return;
-
-  const item = currentItems.find(i => i.id === itemId);
-  if (!item) return;
-
-  const currentTags = getItemTags(item);
-  const formattedTag = tagName.startsWith('#') ? tagName.trim() : '#' + tagName.trim();
-  if (!currentTags.includes(formattedTag)) {
-    currentTags.push(formattedTag);
-  }
-
-  const currentMappings = getItemGraphMappings(item);
-
   try {
-    await invoke('update_item_tags', {
-      id: itemId,
-      tags: currentTags,
-      graph_mappings: currentMappings
-    });
-  } catch (_) {}
-
-  const store = getLocalTagsStore();
-  store[itemId] = { tags: currentTags, graph_mappings: currentMappings };
-  saveLocalTagsStore(store);
-
-  showToast(`Added tag ${formattedTag}`, 'success');
-  await fetchQueue();
-};
-
-// ============================================================================
-// Tag & Change Graph Mapping Modal
-// ============================================================================
-window.openTagMappingModal = (itemId, tagIndex, tagName, e) => {
-  if (e) e.stopPropagation();
-  const item = currentItems.find(i => i.id === itemId);
-  if (!item) return;
-
-  const mappings = getItemGraphMappings(item);
-  activeTagModalData = {
-    itemId,
-    tagIndex,
-    tagName,
-    mappedSymbols: [...mappings]
-  };
-
-  const modal = document.getElementById('modal-tag-mapping');
-  const nameInput = document.getElementById('modal-tag-name');
-  if (nameInput) nameInput.value = tagName;
-
-  renderMappedSymbolsList();
-  modal?.classList.remove('hidden');
-};
-
-function renderMappedSymbolsList() {
-  const list = document.getElementById('modal-mapped-symbols-list');
-  if (!list || !activeTagModalData) return;
-
-  list.innerHTML = activeTagModalData.mappedSymbols.map((sym, idx) => `
-    <div class="mapped-symbol-item">
-      <span>${escapeHtml(sym)}</span>
-      <button style="background:none; border:none; color:var(--accent-rose); cursor:pointer;" onclick="window.removeMappedSymbol(${idx})">&times;</button>
-    </div>
-  `).join('');
-}
-
-window.removeMappedSymbol = (idx) => {
-  if (!activeTagModalData) return;
-  activeTagModalData.mappedSymbols.splice(idx, 1);
-  renderMappedSymbolsList();
-};
-
-document.getElementById('btn-add-mapped-symbol')?.addEventListener('click', () => {
-  const input = document.getElementById('modal-tag-symbol-input');
-  const val = input?.value.trim();
-  if (!val || !activeTagModalData) return;
-  if (!activeTagModalData.mappedSymbols.includes(val)) {
-    activeTagModalData.mappedSymbols.push(val);
-  }
-  input.value = '';
-  renderMappedSymbolsList();
-});
-
-document.getElementById('btn-close-tag-modal')?.addEventListener('click', () => {
-  document.getElementById('modal-tag-mapping')?.classList.add('hidden');
-});
-document.getElementById('btn-cancel-tag-modal')?.addEventListener('click', () => {
-  document.getElementById('modal-tag-mapping')?.classList.add('hidden');
-});
-
-document.getElementById('btn-delete-tag')?.addEventListener('click', async () => {
-  if (!activeTagModalData) return;
-  const { itemId, tagIndex } = activeTagModalData;
-  const item = currentItems.find(i => i.id === itemId);
-  if (item) {
-    const tags = getItemTags(item);
-    tags.splice(tagIndex, 1);
-    const mappings = activeTagModalData.mappedSymbols;
-
-    try {
-      await invoke('update_item_tags', { id: itemId, tags, graph_mappings: mappings });
-    } catch (_) {}
-
-    const store = getLocalTagsStore();
-    store[itemId] = { tags, graph_mappings: mappings };
-    saveLocalTagsStore(store);
-
-    showToast('Tag removed', 'info');
-    document.getElementById('modal-tag-mapping')?.classList.add('hidden');
-    await fetchQueue();
-  }
-});
-
-document.getElementById('btn-save-tag-modal')?.addEventListener('click', async () => {
-  if (!activeTagModalData) return;
-  const { itemId, tagIndex } = activeTagModalData;
-  const nameInput = document.getElementById('modal-tag-name');
-  const newName = nameInput?.value.trim() || activeTagModalData.tagName;
-
-  const item = currentItems.find(i => i.id === itemId);
-  if (item) {
-    const tags = getItemTags(item);
-    tags[tagIndex] = newName.startsWith('#') ? newName : '#' + newName;
-    const mappings = activeTagModalData.mappedSymbols;
-
-    try {
-      await invoke('update_item_tags', { id: itemId, tags, graph_mappings: mappings });
-    } catch (_) {}
-
-    const store = getLocalTagsStore();
-    store[itemId] = { tags, graph_mappings: mappings };
-    saveLocalTagsStore(store);
-
-    showToast(`Updated tag ${newName} and graph mappings`, 'success');
-    document.getElementById('modal-tag-mapping')?.classList.add('hidden');
-    await fetchQueue();
-  }
-});
-
-// Jump Directly to Change Graph and highlight mapped symbols
-document.getElementById('btn-jump-to-graph')?.addEventListener('click', () => {
-  if (!activeTagModalData) return;
-  const targetSymbol = activeTagModalData.mappedSymbols[0] || 'token.rs';
-  document.getElementById('modal-tag-mapping')?.classList.add('hidden');
-
-  // Switch to Change Graph tab
-  document.getElementById('tab-btn-graph')?.click();
-
-  // Find node corresponding to symbol and select it
-  setTimeout(() => {
-    if (currentGraphTopology?.nodes) {
-      const matched = currentGraphTopology.nodes.find(n => 
-        n.label.toLowerCase().includes(targetSymbol.toLowerCase()) ||
-        n.id.toLowerCase().includes(targetSymbol.toLowerCase()) ||
-        n.detail?.toLowerCase().includes(targetSymbol.toLowerCase())
-      );
-      if (matched) {
-        selectedGraphNodeId = matched.id;
-        renderNodeDrawer(matched);
-        renderEsgCanvas();
-        showToast(`Highlighted mapped symbol: ${matched.label}`, 'success');
-      }
-    }
-  }, 100);
-});
-
-// ============================================================================
-// Attached Prompt & Failure Diagnostics
-// ============================================================================
-document.getElementById('btn-edit-prompt')?.addEventListener('click', () => {
-  const item = currentItems.find(i => i.id === selectedItemId);
-  if (!item) return;
-
-  const modal = document.getElementById('modal-edit-prompt');
-  const sysInput = document.getElementById('edit-prompt-system-goal');
-  const unitInput = document.getElementById('edit-prompt-unit-text');
-
-  if (sysInput) sysInput.value = item.system_goal || 'Modernize repository and eliminate behavioral regressions through atomic unit gates';
-  if (unitInput) unitInput.value = item.prompt || item.description || item.title;
-
-  modal?.classList.remove('hidden');
-});
-
-document.getElementById('btn-close-prompt-modal')?.addEventListener('click', () => {
-  document.getElementById('modal-edit-prompt')?.classList.add('hidden');
-});
-document.getElementById('btn-cancel-prompt-modal')?.addEventListener('click', () => {
-  document.getElementById('modal-edit-prompt')?.classList.add('hidden');
-});
-
-document.getElementById('btn-save-prompt-modal')?.addEventListener('click', async () => {
-  const item = currentItems.find(i => i.id === selectedItemId);
-  if (!item) return;
-
-  const sysInput = document.getElementById('edit-prompt-system-goal');
-  const unitInput = document.getElementById('edit-prompt-unit-text');
-
-  const system_goal = sysInput?.value.trim() || 'Modernize repository through atomic unit gates';
-  const prompt = unitInput?.value.trim() || item.title;
-
-  try {
-    await invoke('update_item_prompt', {
-      id: item.id,
-      prompt,
-      system_goal
-    });
-
-    item.prompt = prompt;
-    item.system_goal = system_goal;
-
-    // Trigger harness verification unit with new prompt
-    showToast('Dispatching unit to harness with updated prompt...', 'info');
-    await invoke('execute_harness_unit', {
-      id: item.id,
-      prompt,
-      system_goal
-    });
-
-    document.getElementById('modal-edit-prompt')?.classList.add('hidden');
-    showToast('Prompt attached and verified in sandbox', 'success');
-    await fetchQueue();
-  } catch (err) {
-    showToast('Failed to update prompt: ' + err, 'error');
-  }
-});
-
-// Advance Task Actions
-window.advanceTask = async (id, action, event) => {
-  if (event) event.stopPropagation();
-  recentlyMovedId = id;
-
-  try {
-    if (action === 'verify') {
-      const item = currentItems.find(i => i.id === id);
-      await invoke('execute_harness_unit', {
-        id,
-        prompt: item?.prompt || null,
-        system_goal: item?.system_goal || null
-      });
-      showToast('Unit executed and verified in sandbox', 'success');
-    } else if (action === 'approve') {
-      await invoke('approve_operation', {
-        id,
-        approver: 'human_operator',
-        notes: 'Approved via Board'
-      });
-      showToast('Task signed off and approved', 'success');
-    } else if (action === 'promote') {
-      await invoke('approve_operation', {
-        id,
-        approver: 'human_operator',
-        notes: 'Applied & promoted to master'
-      });
-      showToast('Changes promoted and merged into master', 'success');
-    }
-    await fetchQueue();
-  } catch (err) {
-    showToast('Failed to advance task: ' + err, 'error');
-  }
-};
-
-async function handleDropOnStage(itemId, targetStage) {
-  recentlyMovedId = itemId;
-  try {
-    if (targetStage === 'verified' || targetStage === 'sandboxed') {
-      await invoke('verify_operation', { id: itemId });
-      showToast(`Task moved to ${formatStateLabel(targetStage)}`, 'success');
-    } else if (targetStage === 'approved' || targetStage === 'promoted') {
-      await invoke('approve_operation', {
-        id: itemId,
-        approver: 'human_operator',
-        notes: `Moved to ${targetStage} via Board drag & drop`
-      });
-      showToast(`Task moved to ${formatStateLabel(targetStage)}`, 'success');
-    }
-    await fetchQueue();
-  } catch (err) {
-    showToast('Cannot transition task: ' + err, 'error');
-  }
-}
-
-window.openCardDetail = (id) => {
-  selectedItemId = id;
-  const item = currentItems.find(i => i.id === id);
-  if (item) {
-    selectItem(item);
-    document.getElementById('tab-btn-queue')?.click();
-  }
-};
-
-function formatStateLabel(state) {
-  if (!state) return '';
-  const map = {
-    'captured': 'Triggered',
-    'sandboxed': 'In Sandbox',
-    'contract_verified': 'Tests Passing',
-    'contractverified': 'Tests Passing',
-    'degraded': 'Tests Passing (Degraded)',
-    'human_approved': 'Approved',
-    'humanapproved': 'Approved',
-    'promoted': 'Applied',
-    'rejected': 'Rejected'
-  };
-  return map[state.toLowerCase()] || state;
-}
-
-// ============================================================================
-// Queue & Item Selection in Tasks & Review View
-// ============================================================================
-async function fetchQueue() {
-  try {
-    const items = await invoke('list_operations');
-    if (items) {
-      currentItems = items;
-      renderKPIs();
-      renderSidebarList();
-      renderBoard();
-      if (selectedItemId) {
-        const found = currentItems.find(i => i.id === selectedItemId);
-        if (found) selectItem(found);
-      }
-    }
-  } catch (err) {
-    console.error('Failed to fetch queue:', err);
-  }
-}
-
-function renderKPIs() {
-  const prodCount = currentItems.filter(i => i.domain_tag === '#prod-bug').length;
-  const crmCount = currentItems.filter(i => i.domain_tag === '#crm-request').length;
-  const surveyCount = currentItems.filter(i => i.domain_tag === '#survey-mapping').length;
-
-  const prodEl = document.getElementById('metric-prod-count');
-  const crmEl = document.getElementById('metric-crm-count');
-  const surveyEl = document.getElementById('metric-survey-count');
-
-  if (prodEl) prodEl.textContent = prodCount;
-  if (crmEl) crmEl.textContent = crmCount;
-  if (surveyEl) surveyEl.textContent = surveyCount;
-}
-
-function renderSidebarList() {
-  const listEl = document.getElementById('items-list');
-  if (!listEl) return;
-
-  const filtered = currentFilter === 'all' 
-    ? currentItems 
-    : currentItems.filter(i => i.domain_tag === currentFilter || getItemTags(i).includes(currentFilter));
-
-  if (filtered.length === 0) {
-    listEl.innerHTML = '<div class="empty-state">No tasks matching filter.</div>';
-    return;
-  }
-
-  listEl.innerHTML = filtered.map(item => {
-    const isSelected = item.id === selectedItemId;
-    const badgeClass = item.domain_tag === '#prod-bug' ? 'badge-emerald' 
-      : item.domain_tag === '#crm-request' ? 'badge-amber' : 'badge-cyan';
+    recentlyMovedId = itemId;
+    const updated = await invoke('advance_card_stage', { id: itemId, targetStage: targetStage });
     
-    return `
-      <div class="item-card ${isSelected ? 'selected' : ''}" onclick="window.selectItemById('${item.id}')">
-        <div class="item-header">
-          <span class="badge ${badgeClass}">${item.domain_tag}</span>
-          <span style="font-size: 11px; font-weight: 700; color: ${getStateColor(item.state)}">${formatStateLabel(item.state)}</span>
-        </div>
-        <div class="item-title">${escapeHtml(item.title)}</div>
-        <div class="item-meta">
-          <span>By: ${escapeHtml(item.requester)}</span>
-          <span>${formatDate(item.created_at)}</span>
-        </div>
-      </div>
-    `;
-  }).join('');
-}
-
-window.selectItemById = (id) => {
-  selectedItemId = id;
-  const item = currentItems.find(i => i.id === id);
-  if (item) selectItem(item);
-  renderSidebarList();
-};
-
-function selectItem(item) {
-  selectedItemId = item.id;
-  document.getElementById('empty-review')?.classList.add('hidden');
-  document.getElementById('active-review')?.classList.remove('hidden');
-
-  document.getElementById('review-id').textContent = item.id;
-  document.getElementById('review-title').textContent = item.title;
-  document.getElementById('review-desc').textContent = item.description;
-
-  const domainBadge = document.getElementById('review-domain-badge');
-  domainBadge.textContent = item.domain_tag;
-  domainBadge.className = `badge ${item.domain_tag === '#prod-bug' ? 'badge-emerald' : item.domain_tag === '#crm-request' ? 'badge-amber' : 'badge-cyan'}`;
-
-  const stateBadge = document.getElementById('review-state-badge');
-  stateBadge.textContent = formatStateLabel(item.state);
-  stateBadge.style.color = getStateColor(item.state);
-
-  // Custom tags in review
-  const customTagsContainer = document.getElementById('review-custom-tags');
-  if (customTagsContainer) {
-    const tags = getItemTags(item);
-    customTagsContainer.innerHTML = tags.map((t, idx) => `
-      <span class="tag-chip ${hasGraphMapping(item, t) ? 'has-graph' : ''}" 
-            onclick="window.openTagMappingModal('${item.id}', ${idx}, '${escapeHtml(t)}', event)">
-        ${escapeHtml(t)}
-      </span>
-    `).join('') + `<button class="tag-chip-add" onclick="window.promptAddTag('${item.id}', event)">+ Tag</button>`;
-  }
-
-  // Stepper Track
-  updateStepper(item.state);
-
-  // Attached Prompt Box
-  const promptTextEl = document.getElementById('attached-prompt-text');
-  if (promptTextEl) {
-    promptTextEl.textContent = item.prompt || item.description || 'No custom prompt attached. Click Edit Prompt to add one.';
-  }
-
-  // Unit Achievement vs. Whole System Goal Diagnostic Breakdown
-  renderPromptBreakdown(item);
-
-  // Inspection Payload & Tests
-  renderInspection(item);
-  renderVerification(item);
-  renderAudit(item);
-
-  // Button States
-  const s = (item.state || '').toLowerCase();
-  const btnApprove = document.getElementById('btn-action-approve');
-  const btnVerify = document.getElementById('btn-action-verify');
-  const btnReject = document.getElementById('btn-action-reject');
-
-  if (s === 'promoted') {
-    if (btnApprove) btnApprove.disabled = true;
-    if (btnVerify) btnVerify.disabled = true;
-    if (btnReject) btnReject.disabled = true;
-  } else {
-    if (btnApprove) btnApprove.disabled = false;
-    if (btnVerify) btnVerify.disabled = false;
-    if (btnReject) btnReject.disabled = false;
-  }
-}
-
-function updateStepper(state) {
-  const stages = ['captured', 'sandboxed', 'verified', 'approved', 'promoted'];
-  const s = (state || '').toLowerCase();
-  let currentIdx = 0;
-  if (s === 'sandboxed') currentIdx = 1;
-  else if (s === 'contract_verified' || s === 'contractverified' || s === 'degraded') currentIdx = 2;
-  else if (s === 'human_approved' || s === 'humanapproved') currentIdx = 3;
-  else if (s === 'promoted') currentIdx = 4;
-
-  stages.forEach((stage, idx) => {
-    const node = document.getElementById(`step-${stage}`);
-    if (!node) return;
-    node.className = 'step-node';
-    if (idx < currentIdx) node.classList.add('completed');
-    if (idx === currentIdx) node.classList.add('active');
-
-    if (idx > 0) {
-      const line = document.getElementById(`line-${idx}`);
-      if (line) {
-        line.className = idx <= currentIdx ? 'step-line active' : 'step-line';
-      }
+    // Update local list
+    const idx = currentItems.findIndex(i => i.id === itemId);
+    if (idx !== -1 && updated) {
+      currentItems[idx] = updated;
     }
-  });
-}
-
-// Render Unit Achievement vs System Goal Breakdown
-function renderPromptBreakdown(item) {
-  const sysGoalEl = document.getElementById('breakdown-system-goal');
-  const unitGoalEl = document.getElementById('breakdown-unit-goal');
-  const statusBadge = document.getElementById('breakdown-status-badge');
-  const diagContainer = document.getElementById('breakdown-stage-diagnostics');
-  const attachStatus = document.getElementById('breakdown-attachment-status');
-
-  const unitGoal = item.prompt || item.title;
-  const sysGoal = item.system_goal || 'Modernize repository and eliminate behavioral regressions through atomic unit gates';
-
-  if (sysGoalEl) sysGoalEl.textContent = sysGoal;
-  if (unitGoalEl) unitGoalEl.textContent = unitGoal;
-
-  const diag = item.unit_diagnostic;
-  const report = item.verification_report;
-
-  if (diag) {
-    if (statusBadge) {
-      statusBadge.textContent = 'Diverged / Failed';
-      statusBadge.className = 'badge badge-rose';
-    }
-    if (attachStatus) {
-      attachStatus.textContent = 'Blocked: Requires Unit Correction Before Downstream Merge';
-      attachStatus.className = 'text-rose-400 font-bold';
-    }
-
-    diagContainer.innerHTML = `
-      <div class="stage-failure-header fail">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
-        <span>Failed at ${escapeHtml(diag.stage_failed)}</span>
-      </div>
-
-      <div class="root-cause-box">
-        <strong>Why the Prompt Failed to Achieve the Goal:</strong><br>
-        ${escapeHtml(diag.failure_reason)}
-      </div>
-
-      ${diag.error_snippet ? `
-        <div style="font-size: 11px; font-family: var(--font-mono); background: #07090d; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border); color: #f87171; overflow-x: auto;">
-          ${escapeHtml(diag.error_snippet)}
-        </div>
-      ` : ''}
-
-      ${diag.suggested_refinement ? `
-        <div class="prompt-refinement-box">
-          <span class="prompt-refinement-title">💡 Suggested Prompt Refinement to Achieve Goal:</span>
-          <div class="prompt-refinement-text">"${escapeHtml(diag.suggested_refinement)}"</div>
-          <div>
-            <button class="btn btn-primary btn-sm" onclick="window.applyRefinedPrompt('${item.id}', '${escapeHtml(diag.suggested_refinement).replace(/'/g, "\\'")}')">
-              ▶ Apply Refinement & Retry Unit
-            </button>
-          </div>
-        </div>
-      ` : ''}
-    `;
-  } else if (report && report.passed) {
-    if (statusBadge) {
-      statusBadge.textContent = 'Contract Verified (100%)';
-      statusBadge.className = 'badge badge-emerald';
-    }
-    if (attachStatus) {
-      attachStatus.textContent = '✓ Attached to System Graph & Target Release Pipeline';
-      attachStatus.className = 'text-emerald-400 font-bold';
-    }
-
-    diagContainer.innerHTML = `
-      <div class="stage-failure-header pass">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-        <span>Unit Goal Satisfied All Automated Gates</span>
-      </div>
-      <div style="font-size: 12px; color: var(--text-secondary);">
-        The attached prompt achieved its atomic unit change without compiler regression or behavioral contract failure. This unit is verified and ready for human approval and merge.
-      </div>
-    `;
-  } else {
-    if (statusBadge) {
-      statusBadge.textContent = 'Pending Verification';
-      statusBadge.className = 'badge badge-cyan';
-    }
-    if (attachStatus) {
-      attachStatus.textContent = 'In Progress in Sandbox';
-      attachStatus.className = 'text-cyan-400';
-    }
-
-    diagContainer.innerHTML = `
-      <div style="font-size: 12px; color: var(--text-muted); font-style: italic;">
-        Click 'Run Tests (v)' to execute this unit within an isolated sandbox and inspect stage-by-stage contract compliance.
-      </div>
-    `;
-  }
-}
-
-window.applyRefinedPrompt = async (itemId, refinedPrompt) => {
-  try {
-    await invoke('update_item_prompt', {
-      id: itemId,
-      prompt: refinedPrompt,
-      system_goal: null
-    });
-    showToast('Applying refined prompt and executing harness unit...', 'info');
-    await invoke('execute_harness_unit', {
-      id: itemId,
-      prompt: refinedPrompt,
-      system_goal: null
-    });
-    showToast('Unit re-executed with refined prompt', 'success');
-    await fetchQueue();
+    renderBoard();
+    showToast(`Task advanced to ${targetStage}`);
+    setTimeout(() => { recentlyMovedId = null; }, 1200);
   } catch (err) {
-    showToast('Refinement retry failed: ' + err, 'error');
+    showToast(`Error advancing task: ${err}`, 'error');
   }
 };
 
-function renderInspection(item) {
-  const container = document.getElementById('inspection-container');
-  const payload = item.payload;
+// Drag and Drop Handlers
+let draggedItemId = null;
 
-  if (payload.domain_type === 'prod_bug') {
-    const data = payload.data;
-    container.innerHTML = `
-      <div class="panel-card">
-        <h3>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
-          Codebase Changes & Git Diff
-        </h3>
-        <div style="margin-bottom: 12px; font-size: 12px; color: var(--text-secondary);">
-          <strong>Commit:</strong> <code style="color: var(--accent-cyan);">${escapeHtml(data.commit_id)}</code> &bull;
-          <strong>Reproduction Command:</strong> <code>${escapeHtml(data.reproduction_command || 'cargo test')}</code>
-        </div>
-        <div class="diff-box">
-          <span class="diff-ctx">@@ -40,7 +40,7 @@ fn authenticate_session(token: &str) -> Result&lt;Session&gt; {</span>
-          <span class="diff-rem">-    let claims = parse_jwt_unchecked(token)?; // Panic on malformed token</span>
-          <span class="diff-add">+    let claims = parse_jwt_safe(token).map_err(|e| AuthError::InvalidToken(e))?;</span>
-          <span class="diff-ctx">     validate_expiration(&claims)?;</span>
-          <span class="diff-ctx">     Ok(Session::from_claims(claims))</span>
-        </div>
-      </div>
-    `;
-  } else if (payload.domain_type === 'crm_request') {
-    const data = payload.data;
-    container.innerHTML = `
-      <div class="panel-card">
-        <h3>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line></svg>
-          Commercial Policy & Contract Impact
-        </h3>
-        <div style="display: flex; gap: 12px; margin-bottom: 12px;">
-          <div style="background: var(--bg-card); padding: 10px; border-radius: 8px; flex: 1;">
-            <div style="font-size: 10px; color: var(--text-muted);">ACCOUNT ARR</div>
-            <div style="font-size: 16px; font-weight: 700;">$${Number(data.current_arr || 0).toLocaleString()}</div>
+window.handleDragStart = (itemId, e) => {
+  draggedItemId = itemId;
+  e.dataTransfer.setData('text/plain', itemId);
+  e.dataTransfer.effectAllowed = 'move';
+};
+
+window.handleDragOver = (e) => {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+};
+
+window.handleDrop = async (targetRelation, e) => {
+  e.preventDefault();
+  if (!draggedItemId) return;
+  const itemId = draggedItemId;
+  draggedItemId = null;
+  await window.advanceTask(itemId, targetRelation);
+};
+
+// Open Card Details in Tasks & Review view
+window.openCardDetail = (itemId) => {
+  selectedItemId = itemId;
+  document.getElementById('tab-btn-queue')?.click();
+  selectItemInQueue(itemId);
+};
+
+// ============================================================================
+// Project Structure & Human Organization Logic
+// ============================================================================
+async function loadProjectStructure() {
+  const container = document.getElementById('struct-domains-container');
+  if (!container) return;
+
+  try {
+    const structure = await invoke('get_project_structure');
+    if (!structure) {
+      container.innerHTML = '<div class="p-8 text-center text-zinc-500">No project structure loaded.</div>';
+      return;
+    }
+
+    document.getElementById('struct-project-name').textContent = structure.project_name || 'Active Project';
+    document.getElementById('struct-project-path').textContent = structure.root_path || '.';
+    document.getElementById('struct-progress-label').textContent = `${Math.round(structure.overall_progress_pct || 0)}%`;
+    document.getElementById('struct-progress-bar').style.width = `${Math.round(structure.overall_progress_pct || 0)}%`;
+
+    const domains = structure.domains || [];
+    container.innerHTML = domains.map((domain, dIdx) => `
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
+        <div class="p-4 bg-zinc-900/70 border-b border-zinc-800 flex justify-between items-center">
+          <div>
+            <h2 class="text-sm font-bold text-zinc-100">${escapeHtml(domain.name)}</h2>
+            <p class="text-xs text-zinc-400 mt-0.5">${escapeHtml(domain.description)}</p>
           </div>
-          <div style="background: var(--bg-card); padding: 10px; border-radius: 8px; flex: 1;">
-            <div style="font-size: 10px; color: var(--text-muted);">REQUESTED DISCOUNT</div>
-            <div style="font-size: 16px; font-weight: 700; color: ${data.requested_discount_pct > 25 ? 'var(--accent-amber)' : 'var(--accent-emerald)'};">${data.requested_discount_pct}%</div>
-          </div>
+          <span class="px-2.5 py-1 rounded-md text-xs font-semibold bg-zinc-800 text-zinc-300 border border-zinc-700">
+            ${domain.verified_units || 0} / ${domain.total_units || 0} Verified
+          </span>
         </div>
-      </div>
-    `;
-  } else if (payload.domain_type === 'survey_mapping') {
-    const data = payload.data;
-    const responses = data.responses || [];
-    container.innerHTML = `
-      <div class="panel-card">
-        <h3>Customer Feedback Categorization (${responses.length} Items)</h3>
-        <div style="display: flex; flex-direction: column; gap: 6px;">
-          ${responses.map(r => `
-            <div style="display: flex; justify-content: space-between; padding: 6px 8px; background: var(--bg-card); border-radius: 6px; font-size: 12px;">
-              <span>"${escapeHtml(r.feedback_text)}"</span>
-              <span class="badge ${r.candidate_taxonomy_node ? 'badge-cyan' : 'badge-rose'}">
-                ${r.candidate_taxonomy_node || 'UNMAPPED'}
-              </span>
+
+        <div class="p-4 space-y-4">
+          ${(domain.waves || []).map(wave => `
+            <div class="rounded-lg border border-zinc-800/80 bg-zinc-950/50 p-4 space-y-3">
+              <div class="flex justify-between items-center">
+                <div>
+                  <h3 class="text-xs font-bold text-platinum">${escapeHtml(wave.wave_name)}</h3>
+                  <p class="text-[11px] text-zinc-400">${escapeHtml(wave.description)}</p>
+                </div>
+                <div class="flex items-center gap-3">
+                  <span class="text-xs font-mono text-zinc-400">${wave.verified_units}/${wave.total_units}</span>
+                  <div class="w-24 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                    <div class="h-full bg-emerald-400" style="width: ${wave.completion_pct}%;"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Units List -->
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-2 pt-1">
+                ${(wave.units || []).map(unit => `
+                  <div class="flex justify-between items-center p-2.5 rounded-md border border-zinc-800 bg-zinc-900/60 text-xs hover:border-zinc-700 transition-colors">
+                    <div class="space-y-0.5">
+                      <div class="font-semibold text-zinc-200">${escapeHtml(unit.symbol_name)}</div>
+                      <div class="text-[10px] text-zinc-500 font-mono">${escapeHtml(unit.file_path)}</div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <span class="px-2 py-0.5 rounded text-[10px] font-bold ${getUnitStatusClass(unit.status)}">
+                        ${escapeHtml(unit.status)}
+                      </span>
+                      <button class="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-[10px] font-medium text-zinc-300" onclick="window.openCardDetail('${unit.unit_id}')">
+                        Inspect
+                      </button>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
             </div>
           `).join('')}
         </div>
       </div>
-    `;
+    `).join('');
+  } catch (err) {
+    container.innerHTML = `<div class="p-6 text-center text-rose-400">Failed to load project structure: ${err}</div>`;
   }
 }
 
-function renderVerification(item) {
-  const summaryEl = document.getElementById('verification-summary');
-  const rulesListEl = document.getElementById('rule-results-list');
-
-  if (!item.verification_report) {
-    summaryEl.innerHTML = '<span style="color: var(--text-muted);">Contract not yet verified. Click "Run Tests (v)" to run deterministic gates.</span>';
-    rulesListEl.innerHTML = '';
-    return;
+function getUnitStatusClass(status) {
+  const s = (status || '').toLowerCase();
+  if (s.includes('verified') || s.includes('promoted') || s.includes('approved')) {
+    return 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
   }
-
-  const rep = item.verification_report;
-  summaryEl.innerHTML = `
-    <div style="font-weight: 700; color: ${rep.passed ? 'var(--accent-emerald)' : 'var(--accent-rose)'}; margin-bottom: 8px;">
-      ${rep.passed ? '✓ PASSED CONTRACT VERIFICATION' : '✗ VERIFICATION FAILED'}
-    </div>
-    <div style="font-size: 12px; color: var(--text-secondary);">${escapeHtml(rep.summary)}</div>
-  `;
-
-  rulesListEl.innerHTML = (rep.rule_results || []).map(r => `
-    <div class="rule-result-item ${r.passed ? 'pass' : 'fail'}">
-      <div><strong>${escapeHtml(r.rule_name)}:</strong> ${escapeHtml(r.details)}</div>
-      <span class="badge ${r.passed ? 'badge-emerald' : 'badge-rose'}">${r.passed ? 'PASS' : 'FAIL'}</span>
-    </div>
-  `).join('');
+  if (s.includes('sandboxed') || s.includes('testing')) {
+    return 'bg-amber-500/10 text-amber-400 border border-amber-500/20';
+  }
+  return 'bg-zinc-800 text-zinc-400 border border-zinc-700';
 }
 
-function renderAudit(item) {
-  const container = document.getElementById('audit-entries');
-  if (!container) return;
-  const entries = item.audit_trail || [];
+// ============================================================================
+// Project Discovery & Setup Wizard Workflow
+// ============================================================================
+function initProjectSetupWizard() {
+  const modal = document.getElementById('modal-project-setup');
+  const btnOpen = document.getElementById('btn-open-project');
+  const btnClose = document.getElementById('btn-close-project-setup');
+  const btnCancel = document.getElementById('btn-cancel-project-setup');
+  const btnScan = document.getElementById('btn-run-scan');
+  const btnBrowse = document.getElementById('btn-browse-folder');
+  const htmlFolderPicker = document.getElementById('html-folder-picker');
+  const pathInput = document.getElementById('setup-repo-path');
+  const scanError = document.getElementById('setup-scan-error');
+  const btnStart = document.getElementById('btn-start-project-setup');
+  const discoveryCard = document.getElementById('setup-discovery-card');
+  const pipeline = document.getElementById('setup-progress-pipeline');
 
-  container.innerHTML = entries.map(e => `
-    <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 11px;">
-      <div>
-        <span style="font-weight: 700; color: var(--accent-gold);">${escapeHtml(e.action)}</span>
-        <span style="color: var(--text-secondary);"> &bull; ${escapeHtml(e.details)}</span>
-      </div>
-      <div style="color: var(--text-muted);">${formatDate(e.timestamp)}</div>
-    </div>
-  `).join('');
-}
-
-// Action Button Listeners in Review Header
-document.getElementById('btn-action-verify')?.addEventListener('click', async () => {
-  if (!selectedItemId) return;
-  const item = currentItems.find(i => i.id === selectedItemId);
-  showToast('Executing automated unit tests in sandbox...', 'info');
-  try {
-    await invoke('execute_harness_unit', {
-      id: selectedItemId,
-      prompt: item?.prompt || null,
-      system_goal: item?.system_goal || null
+  const resetPipelineSteps = () => {
+    const steps = ['pipe-step-1', 'pipe-step-2', 'pipe-step-3', 'pipe-step-4', 'pipe-step-5'];
+    steps.forEach((s, idx) => {
+      const el = document.getElementById(s);
+      if (el) {
+        el.classList.remove('border-emerald-500/50', 'bg-emerald-500/5');
+        const sp = el.querySelector('span');
+        if (sp) {
+          sp.textContent = `${idx + 1}`;
+          sp.classList.remove('border-emerald-400', 'text-emerald-400');
+        }
+      }
     });
-    showToast('Contract verification executed', 'success');
-    await fetchQueue();
-  } catch (err) {
-    showToast('Verification error: ' + err, 'error');
-  }
-});
+  };
 
-document.getElementById('btn-action-approve')?.addEventListener('click', async () => {
-  if (!selectedItemId) return;
-  try {
-    await invoke('approve_operation', {
-      id: selectedItemId,
-      approver: 'lead_operator',
-      notes: 'Signed off from Exodus Mission Control'
-    });
-    showToast('Task approved and scheduled for promotion', 'success');
-    await fetchQueue();
-  } catch (err) {
-    showToast('Approval rejected: ' + err, 'error');
-  }
-});
-
-document.getElementById('btn-action-reject')?.addEventListener('click', async () => {
-  if (!selectedItemId) return;
-  const reason = prompt('Enter reason for rejection:');
-  if (!reason) return;
-  try {
-    await invoke('reject_operation', {
-      id: selectedItemId,
-      actor: 'lead_operator',
-      reason
-    });
-    showToast('Task rejected', 'info');
-    await fetchQueue();
-  } catch (err) {
-    showToast('Rejection error: ' + err, 'error');
-  }
-});
-
-document.getElementById('btn-view-lineage')?.addEventListener('click', () => {
-  document.getElementById('tab-btn-graph')?.click();
-});
-
-// Domain Filter Tabs in Sidebar
-document.querySelectorAll('#domain-filters .filter-tab').forEach(tab => {
-  tab.addEventListener('click', (e) => {
-    document.querySelectorAll('#domain-filters .filter-tab').forEach(t => t.classList.remove('active'));
-    e.target.classList.add('active');
-    currentFilter = e.target.getAttribute('data-filter');
-    renderSidebarList();
+  btnOpen?.addEventListener('click', () => {
+    modal.classList.remove('hidden');
+    discoveryCard?.classList.add('hidden');
+    pipeline?.classList.add('hidden');
+    resetPipelineSteps();
+    if (scanError) {
+      scanError.classList.add('hidden');
+      scanError.textContent = '';
+    }
+    btnStart.disabled = !(pathInput && pathInput.value.trim().length > 0);
   });
-});
 
-document.getElementById('btn-refresh-queue')?.addEventListener('click', fetchQueue);
+  pathInput?.addEventListener('input', () => {
+    btnStart.disabled = !(pathInput.value.trim().length > 0);
+  });
 
-// New Task Modal Handlers
-document.getElementById('btn-new-item')?.addEventListener('click', () => {
-  document.getElementById('modal-ingest')?.classList.remove('hidden');
-});
-document.getElementById('btn-close-ingest')?.addEventListener('click', () => {
-  document.getElementById('modal-ingest')?.classList.add('hidden');
-});
-document.getElementById('btn-cancel-ingest')?.addEventListener('click', () => {
-  document.getElementById('modal-ingest')?.classList.add('hidden');
-});
+  const closeModal = () => modal.classList.add('hidden');
+  btnClose?.addEventListener('click', closeModal);
+  btnCancel?.addEventListener('click', closeModal);
+  modal?.addEventListener('click', (e) => {
+    if (e.target === modal) closeModal();
+  });
 
-document.getElementById('btn-submit-ingest')?.addEventListener('click', async () => {
-  const domain_tag = document.getElementById('new-item-domain').value;
-  const title = document.getElementById('new-item-title').value.trim();
-  const desc = document.getElementById('new-item-desc').value.trim();
-  const requester = document.getElementById('new-item-requester').value.trim() || 'engineer';
-
-  if (!title) {
-    showToast('Title is required', 'error');
-    return;
-  }
-
-  try {
-    await invoke('ingest_operation', {
-      title,
-      description: desc || title,
-      requester,
-      domain_tag,
-      payload: null,
-      prompt: desc || title,
-      system_goal: 'Modernize repository and eliminate behavioral regressions through atomic unit gates',
-      tags: [domain_tag]
-    });
-    document.getElementById('modal-ingest')?.classList.add('hidden');
-    showToast('Task ingested successfully', 'success');
-    await fetchQueue();
-  } catch (err) {
-    showToast('Failed to ingest: ' + err, 'error');
-  }
-});
-
-// SDLC Settings Modal Handlers
-document.getElementById('btn-sdlc-settings')?.addEventListener('click', async () => {
-  try {
-    const settings = await invoke('get_sdlc_settings');
-    if (settings) {
-      document.getElementById('sdlc-repo-url').value = settings.repo_url;
-      document.getElementById('sdlc-provider').value = settings.provider;
-      document.getElementById('sdlc-default-branch').value = settings.default_target_branch;
-      document.getElementById('sdlc-ci-type').value = settings.ci_type;
+  pathInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      btnScan?.click();
     }
-    const scaffold = await invoke('get_sdlc_scaffold');
-    if (scaffold) {
-      const firstScaffold = Object.values(scaffold)[0] || '';
-      document.getElementById('sdlc-scaffold-preview').textContent = firstScaffold;
-    }
-    document.getElementById('modal-sdlc')?.classList.remove('hidden');
-  } catch (err) {
-    showToast('Failed to load SDLC settings: ' + err, 'error');
-  }
-});
+  });
 
-document.getElementById('btn-close-sdlc')?.addEventListener('click', () => {
-  document.getElementById('modal-sdlc')?.classList.add('hidden');
-});
-document.getElementById('btn-cancel-sdlc')?.addEventListener('click', () => {
-  document.getElementById('modal-sdlc')?.classList.add('hidden');
-});
+  btnBrowse?.addEventListener('click', async () => {
+    try {
+      btnBrowse.disabled = true;
+      const currentVal = pathInput?.value?.trim() || '';
+      const selected = await invoke('pick_folder', { defaultPath: currentVal || null });
+      if (selected) {
+        if (pathInput) pathInput.value = selected;
+        if (scanError) {
+          scanError.classList.add('hidden');
+          scanError.textContent = '';
+        }
+        btnScan?.click();
+      }
+    } catch (err) {
+      console.warn('Native folder picker not available, attempting fallback:', err);
+      htmlFolderPicker?.click();
+    } finally {
+      btnBrowse.disabled = false;
+    }
+  });
+
+  htmlFolderPicker?.addEventListener('change', (e) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      const firstFile = files[0];
+      const relPath = firstFile.webkitRelativePath || '';
+      const folderName = relPath.split('/')[0];
+      if (folderName && pathInput) {
+        pathInput.value = folderName;
+        btnScan?.click();
+      }
+    }
+  });
+
+  btnScan?.addEventListener('click', async () => {
+    const path = pathInput?.value?.trim();
+    if (!path) {
+      showToast('Please enter or select a repository directory.', 'error');
+      return;
+    }
+
+    btnScan.disabled = true;
+    btnScan.textContent = 'Scanning...';
+    if (scanError) {
+      scanError.classList.add('hidden');
+      scanError.textContent = '';
+    }
+
+    try {
+      const result = await invoke('scan_local_repository', { path });
+      if (result) {
+        document.getElementById('discover-name').textContent = result.name;
+        document.getElementById('discover-lang').textContent = result.detected_language;
+        document.getElementById('discover-manifests').textContent = result.manifest_files.join(', ') || 'None';
+        document.getElementById('discover-files').textContent = result.total_files;
+        document.getElementById('discover-lines').textContent = result.total_lines_approx.toLocaleString();
+        
+        if (result.path && pathInput) {
+          pathInput.value = result.path;
+        }
+
+        discoveryCard?.classList.remove('hidden');
+        btnStart.disabled = false;
+        showToast(`Repository scanned: detected ${result.detected_language}`);
+      }
+    } catch (err) {
+      const msg = typeof err === 'string' ? err : (err?.message || JSON.stringify(err));
+      if (scanError) {
+        scanError.textContent = `Scan failed: ${msg}. Try using the Browse button to select an existing directory.`;
+        scanError.classList.remove('hidden');
+      }
+      showToast(`Scan failed: ${msg}`, 'error');
+    } finally {
+      btnScan.disabled = false;
+      btnScan.textContent = 'Scan Repo';
+    }
+  });
+
+  btnStart?.addEventListener('click', async () => {
+    const path = document.getElementById('setup-repo-path')?.value.trim();
+    const targetLang = document.getElementById('setup-target-lang')?.value || 'Rust 2021';
+    if (!path) return;
+
+    btnStart.disabled = true;
+    pipeline?.classList.remove('hidden');
+
+    // Animate process-by-process steps
+    const steps = ['pipe-step-1', 'pipe-step-2', 'pipe-step-3', 'pipe-step-4', 'pipe-step-5'];
+    for (let i = 0; i < steps.length; i++) {
+      const el = document.getElementById(steps[i]);
+      if (el) {
+        el.classList.add('border-emerald-500/50', 'bg-emerald-500/5');
+        el.querySelector('span').textContent = '✓';
+        el.querySelector('span').classList.add('border-emerald-400', 'text-emerald-400');
+      }
+      await new Promise(r => setTimeout(r, 200));
+    }
+
+    try {
+      const result = await invoke('setup_project_workflow', { path, targetLang });
+      showToast(result.message || 'Project initialized successfully!');
+      document.getElementById('active-repo-badge').textContent = (result.project_name || 'PROJECT').toUpperCase();
+      
+      closeModal();
+      await loadOperations();
+      renderBoard();
+      if (activeTab === 'structure') loadProjectStructure();
+      if (activeTab === 'graph') loadChangeGraph();
+    } catch (err) {
+      showToast(`Setup error: ${err}`, 'error');
+    } finally {
+      btnStart.disabled = false;
+    }
+  });
+}
 
 // ============================================================================
-// Change Lineage Graph Canvas & Interactive Inspector
+// Change Lineage Graph Canvas (Dynamic Real AST Semantic Graph)
 // ============================================================================
-let currentGraphTopology = null;
-let selectedGraphNodeId = null;
-let graphNodePositions = {};
+let graphData = { nodes: [], edges: [] };
+let selectedGraphNode = null;
 
-async function renderEsgCanvas() {
+async function loadChangeGraph() {
+  try {
+    const payload = await invoke('get_esg_topology');
+    if (payload) {
+      graphData = payload;
+      document.getElementById('graph-node-count').textContent = payload.nodes.length;
+      document.getElementById('graph-edge-count').textContent = payload.edges.length;
+      drawGraphCanvas();
+    }
+  } catch (err) {
+    console.error('Failed to load ESG topology:', err);
+  }
+}
+
+function drawGraphCanvas() {
   const canvas = document.getElementById('esg-canvas');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
+  if (!ctx) return;
 
-  const rect = canvas.parentElement.getBoundingClientRect();
-  canvas.width = rect.width;
-  canvas.height = rect.height;
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
 
-  let topology;
-  try {
-    topology = await invoke('get_esg_topology');
-  } catch (_) {}
+  const nodes = graphData.nodes || [];
+  const edges = graphData.edges || [];
 
-  if (!topology) {
-    topology = {
-      nodes: [
-        {
-          id: "node_trigger",
-          label: "CI Failure #412",
-          kind: "trigger",
-          wave: 1,
-          status: "active",
-          subtitle: "Trigger: GitHub Actions CI Crash",
-          detail: "Pipeline failed in auth_integration suite. TokenVerifier panicked on unhandled ExpiredSignature error.",
-          diff_snippet: null,
-          meta: { "source": "GitHub Actions", "event": "CI Build #412", "branch": "master" }
-        },
-        {
-          id: "node_prompt",
-          label: "Developer Prompt",
-          kind: "prompt",
-          wave: 2,
-          status: "completed",
-          subtitle: "Prompt: Handle Token Expiration",
-          detail: "Prompt: 'In crates/auth/src/token.rs, safely catch ExpiredSignature and return AuthError::TokenExpired instead of panicking. Run all unit tests to confirm the fix.'",
-          diff_snippet: null,
-          meta: { "author": "engineer@exodus.dev", "model": "Claude 3.5 Sonnet" }
-        },
-        {
-          id: "node_action",
-          label: "AI Repair Task",
-          kind: "action",
-          wave: 3,
-          status: "completed",
-          subtitle: "Task: Safe Token Validation",
-          detail: "Generated bounded repair for token validation. Isolated changes inside git worktree sandbox and prepared regression tests.",
-          diff_snippet: null,
-          meta: { "strategy": "Bounded AST Repair", "sandbox": ".exodus/worktrees/op-eng-412" }
-        },
-        {
-          id: "node_code_file",
-          label: "auth/src/token.rs",
-          kind: "file_change",
-          wave: 4,
-          status: "modified",
-          subtitle: "Codebase File (+8, -2 lines)",
-          detail: "Modified authenticate_session to parse JWT claims safely and map expiration to structured error.",
-          diff_snippet: "@@ -40,7 +40,11 @@ fn authenticate_session(token: &str) -> Result<Session, AuthError> {\n-    let claims = parse_jwt_unchecked(token)?; // Panic on expired token\n+    let claims = match parse_jwt_safe(token) {\n+        Ok(c) => c,\n+        Err(JwtError::ExpiredSignature) => return Err(AuthError::TokenExpired),\n+        Err(e) => return Err(AuthError::InvalidToken(e.to_string())),\n+    };\n     validate_expiration(&claims)?;\n     Ok(Session::from_claims(claims))",
-          meta: { "file": "crates/auth/src/token.rs", "diff": "+8 / -2 lines" }
-        },
-        {
-          id: "node_fn_symbol",
-          label: "verify_token()",
-          kind: "symbol",
-          wave: 4,
-          status: "verified",
-          subtitle: "Function: AuthHandler::verify_token",
-          detail: "Exported public signature: pub async fn verify_token(&self, token: &str) -> Result<Session, AuthError>",
-          diff_snippet: null,
-          meta: { "visibility": "pub", "type": "async fn" }
-        },
-        {
-          id: "node_test_run",
-          label: "Automated Tests",
-          kind: "test",
-          wave: 5,
-          status: "passed",
-          subtitle: "cargo test (3 passed)",
-          detail: "Running 3 tests in crates/auth/tests/auth_integration.rs:\ntest test_valid_token ... ok\ntest test_token_expiration ... ok\ntest test_malformed_token ... ok\n\ntest result: ok. 3 passed; 0 failed; 0 ignored; finished in 0.42s",
-          diff_snippet: null,
-          meta: { "command": "cargo test --test auth_integration", "passed": "3", "failed": "0" }
-        },
-        {
-          id: "node_target_merge",
-          label: "Release Target",
-          kind: "target",
-          wave: 6,
-          status: "ready",
-          subtitle: "Ready for 1-Click Merge",
-          detail: "Clean diff with all automated tests passing. Ready for human review sign-off and branch promotion.",
-          diff_snippet: null,
-          meta: { "target_branch": "master", "status": "Ready for Review" }
-        }
-      ],
-      edges: [
-        { from: "node_trigger", to: "node_prompt", edge_type: "triggers", is_cycle_edge: false },
-        { from: "node_prompt", to: "node_action", edge_type: "instructs", is_cycle_edge: false },
-        { from: "node_action", to: "node_code_file", edge_type: "modifies", is_cycle_edge: false },
-        { from: "node_code_file", to: "node_fn_symbol", edge_type: "contains", is_cycle_edge: false },
-        { from: "node_code_file", to: "node_test_run", edge_type: "verified_by", is_cycle_edge: false },
-        { from: "node_test_run", to: "node_target_merge", edge_type: "promotes_to", is_cycle_edge: false }
-      ]
-    };
+  if (nodes.length === 0) {
+    ctx.fillStyle = '#71717a';
+    ctx.font = '13px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText('No graph nodes loaded. Open a project to parse its semantic graph.', w / 2, h / 2);
+    return;
   }
 
-  currentGraphTopology = topology;
-  document.getElementById('graph-node-count').textContent = topology.nodes.length;
-  document.getElementById('graph-edge-count').textContent = topology.edges.length;
-  document.getElementById('graph-status-count').textContent = 'All Passed';
-
-  const waveGroups = {};
-  topology.nodes.forEach(n => {
-    waveGroups[n.wave] = waveGroups[n.wave] || [];
-    waveGroups[n.wave].push(n);
+  // Position nodes by wave layers
+  const waveMap = {};
+  nodes.forEach(n => {
+    const wave = n.wave || 0;
+    if (!waveMap[wave]) waveMap[wave] = [];
+    waveMap[wave].push(n);
   });
 
-  graphNodePositions = {};
-  const width = canvas.width;
-  const height = canvas.height;
-  const waveKeys = Object.keys(waveGroups).sort((a, b) => Number(a) - Number(b));
-  const colWidth = width / (waveKeys.length + 1);
+  const waves = Object.keys(waveMap).map(Number).sort((a, b) => a - b);
+  const xSpacing = w / (waves.length + 1);
 
-  waveKeys.forEach((waveKey, colIdx) => {
-    const colNodes = waveGroups[waveKey];
-    const rowHeight = height / (colNodes.length + 1);
-    colNodes.forEach((node, rowIdx) => {
-      graphNodePositions[node.id] = {
-        x: colWidth * (colIdx + 1),
-        y: rowHeight * (rowIdx + 1),
-        radius: 26,
-        node
+  const nodePositions = {};
+
+  waves.forEach((wave, wIdx) => {
+    const layerNodes = waveMap[wave];
+    const ySpacing = h / (layerNodes.length + 1);
+    layerNodes.forEach((node, nIdx) => {
+      nodePositions[node.id] = {
+        x: xSpacing * (wIdx + 1),
+        y: ySpacing * (nIdx + 1),
+        node,
       };
     });
   });
 
-  if (!selectedGraphNodeId) {
-    const defaultNode = topology.nodes.find(n => n.kind === 'file_change') || topology.nodes[0];
-    if (defaultNode) {
-      selectedGraphNodeId = defaultNode.id;
-      renderNodeDrawer(defaultNode);
+  // Draw Edges
+  edges.forEach(edge => {
+    const from = nodePositions[edge.from];
+    const to = nodePositions[edge.to];
+    if (from && to) {
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.strokeStyle = edge.is_cycle_edge ? '#f87171' : 'rgba(255, 255, 255, 0.15)';
+      ctx.lineWidth = edge.is_cycle_edge ? 2 : 1;
+      ctx.stroke();
     }
-  }
-
-  drawGraph(ctx, canvas.width, canvas.height, waveKeys, colWidth);
-}
-
-function drawGraph(ctx, width, height, waveKeys, colWidth) {
-  ctx.clearRect(0, 0, width, height);
-
-  const stageLabels = {
-    '1': '1. TRIGGER',
-    '2': '2. PROMPT',
-    '3': '3. TASK ACTION',
-    '4': '4. CODE CHANGE',
-    '5': '5. TESTS',
-    '6': '6. TARGET'
-  };
-
-  waveKeys.forEach((waveKey, colIdx) => {
-    const x = colWidth * (colIdx + 1);
-    ctx.strokeStyle = 'rgba(36, 50, 71, 0.35)';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 4]);
-    ctx.beginPath();
-    ctx.moveTo(x, 46);
-    ctx.lineTo(x, height - 36);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    ctx.fillStyle = '#64748b';
-    ctx.font = '700 10px "JetBrains Mono"';
-    ctx.textAlign = 'center';
-    ctx.fillText(stageLabels[waveKey] || `STAGE ${waveKey}`, x, 28);
   });
 
-  // Edges
-  if (currentGraphTopology?.edges) {
-    currentGraphTopology.edges.forEach(edge => {
-      const from = graphNodePositions[edge.from];
-      const to = graphNodePositions[edge.to];
-      if (!from || !to) return;
+  // Draw Nodes
+  Object.values(nodePositions).forEach(item => {
+    const { x, y, node } = item;
+    const isSelected = selectedGraphNode?.id === node.id;
 
-      const isHighlighted = selectedGraphNodeId === edge.from || selectedGraphNodeId === edge.to;
-      ctx.strokeStyle = isHighlighted ? '#d4af37' : 'rgba(212, 175, 55, 0.3)';
-      ctx.lineWidth = isHighlighted ? 2.5 : 1.4;
-      ctx.beginPath();
+    ctx.beginPath();
+    ctx.arc(x, y, isSelected ? 14 : 10, 0, Math.PI * 2);
+    
+    // Fill color by kind
+    if (node.kind === 'module') ctx.fillStyle = '#60a5fa';
+    else if (node.kind === 'class') ctx.fillStyle = '#c084fc';
+    else if (node.kind === 'symbol') ctx.fillStyle = '#38bdf8';
+    else if (node.kind === 'contract' || node.kind === 'test') ctx.fillStyle = '#34d399';
+    else ctx.fillStyle = '#ffffff';
 
-      const cpX = (from.x + to.x) / 2;
-      const cpY = (from.y + to.y) / 2;
-      ctx.moveTo(from.x, from.y);
-      ctx.quadraticCurveTo(cpX, cpY, to.x, to.y);
-      ctx.stroke();
-
-      ctx.fillStyle = isHighlighted ? '#d4af37' : 'rgba(212, 175, 55, 0.6)';
-      ctx.beginPath();
-      ctx.arc(to.x, to.y, 4, 0, Math.PI * 2);
-      ctx.fill();
-    });
-  }
-
-  // Nodes
-  Object.values(graphNodePositions).forEach(pos => {
-    const n = pos.node;
-    const isSelected = n.id === selectedGraphNodeId;
-    const r = pos.radius;
-
-    let ringColor = '#3b82f6';
-    if (n.kind === 'trigger') ringColor = '#f87171';
-    else if (n.kind === 'prompt') ringColor = '#d4af37';
-    else if (n.kind === 'action') ringColor = '#818cf8';
-    else if (n.kind === 'file_change') ringColor = '#38bdf8';
-    else if (n.kind === 'symbol') ringColor = '#c084fc';
-    else if (n.kind === 'test') ringColor = '#34d399';
-    else if (n.kind === 'target') ringColor = '#fbbf24';
+    ctx.fill();
 
     if (isSelected) {
-      ctx.beginPath();
-      ctx.arc(pos.x, pos.y, r + 9, 0, Math.PI * 2);
-      ctx.strokeStyle = '#d4af37';
-      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
       ctx.stroke();
     }
 
-    ctx.beginPath();
-    ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
-    ctx.fillStyle = '#12151b';
-    ctx.fill();
-    ctx.strokeStyle = ringColor;
-    ctx.lineWidth = isSelected ? 3 : 2;
-    ctx.stroke();
-
-    ctx.fillStyle = '#f8fafc';
-    ctx.font = '700 11px "Plus Jakarta Sans"';
+    // Label
+    ctx.fillStyle = isSelected ? '#ffffff' : '#d4d4d8';
+    ctx.font = '10px system-ui';
     ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    const short = n.label.length > 12 ? n.label.substring(0, 10) + '..' : n.label;
-    ctx.fillText(short, pos.x, pos.y);
+    ctx.fillText(node.label, x, y + 22);
   });
+
+  // Click handler on canvas
+  canvas.onclick = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const clickX = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const clickY = (e.clientY - rect.top) * (canvas.height / rect.height);
+
+    for (const item of Object.values(nodePositions)) {
+      const dist = Math.hypot(item.x - clickX, item.y - clickY);
+      if (dist <= 16) {
+        selectedGraphNode = item.node;
+        inspectGraphNode(item.node);
+        drawGraphCanvas();
+        return;
+      }
+    }
+  };
 }
 
-// Canvas Click handler
-document.getElementById('esg-canvas')?.addEventListener('click', (e) => {
-  const canvas = document.getElementById('esg-canvas');
-  const rect = canvas.getBoundingClientRect();
-  const clickX = e.clientX - rect.left;
-  const clickY = e.clientY - rect.top;
-
-  let clickedNode = null;
-  Object.values(graphNodePositions).forEach(pos => {
-    const dist = Math.hypot(pos.x - clickX, pos.y - clickY);
-    if (dist <= pos.radius + 8) {
-      clickedNode = pos.node;
-    }
-  });
-
-  if (clickedNode) {
-    selectedGraphNodeId = clickedNode.id;
-    renderNodeDrawer(clickedNode);
-    renderEsgCanvas();
-  }
-});
-
-function renderNodeDrawer(node) {
+function inspectGraphNode(node) {
   document.getElementById('drawer-node-kind').textContent = node.kind.toUpperCase();
-  document.getElementById('drawer-node-status').textContent = (node.status || 'OK').toUpperCase();
   document.getElementById('drawer-node-label').textContent = node.label;
   document.getElementById('drawer-node-sub').textContent = node.subtitle || '';
-  document.getElementById('drawer-node-detail').textContent = node.detail || 'No extra context.';
+  document.getElementById('drawer-node-detail').textContent = node.detail || 'No detailed diagnostics available.';
 
   const diffSection = document.getElementById('drawer-diff-section');
   const diffContent = document.getElementById('drawer-diff-content');
-
   if (node.diff_snippet) {
     diffSection.classList.remove('hidden');
-    diffContent.innerHTML = node.diff_snippet.split('\n').map(line => {
-      if (line.startsWith('+')) return `<span class="diff-add">${escapeHtml(line)}</span>`;
-      if (line.startsWith('-')) return `<span class="diff-rem">${escapeHtml(line)}</span>`;
-      return `<span class="diff-ctx">${escapeHtml(line)}</span>`;
-    }).join('');
+    diffContent.textContent = node.diff_snippet;
   } else {
     diffSection.classList.add('hidden');
   }
 
   const metaSection = document.getElementById('drawer-meta-section');
   const metaGrid = document.getElementById('drawer-meta-grid');
-
   if (node.meta && Object.keys(node.meta).length > 0) {
     metaSection.classList.remove('hidden');
     metaGrid.innerHTML = Object.entries(node.meta).map(([k, v]) => `
-      <div style="background: var(--bg-card); padding: 6px 8px; border-radius: 6px; font-size: 11px;">
-        <span style="color: var(--text-muted); font-size: 10px; text-transform: uppercase;">${escapeHtml(k)}</span>
-        <div style="font-weight: 600; color: var(--text-primary);">${escapeHtml(v)}</div>
+      <div class="text-xs">
+        <span class="text-zinc-500 block uppercase font-mono text-[9px]">${escapeHtml(k)}</span>
+        <strong class="text-zinc-200">${escapeHtml(v)}</strong>
       </div>
     `).join('');
   } else {
@@ -1831,64 +775,269 @@ function renderNodeDrawer(node) {
 }
 
 // ============================================================================
-// Keyboard Shortcuts
+// Settings & Agent API Keys Modal
 // ============================================================================
-document.addEventListener('keydown', (e) => {
-  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
+function initSettingsModal() {
+  const modal = document.getElementById('modal-sdlc-settings');
+  const btnOpen = document.getElementById('btn-sdlc-settings');
+  const btnClose = document.getElementById('btn-close-sdlc');
+  const btnCancel = document.getElementById('btn-cancel-sdlc');
+  const btnSave = document.getElementById('btn-save-settings');
 
-  if (e.key === 'n' || e.key === 'N') {
-    // Start inline draft in first visible column
-    const config = getBoardConfig();
-    const firstStage = config.find(s => s.visible);
-    if (firstStage) {
-      document.getElementById('tab-btn-board')?.click();
-      window.startInlineDraft(firstStage.id);
+  if (!modal) return;
+
+  btnOpen?.addEventListener('click', async () => {
+    modal.classList.remove('hidden');
+    try {
+      const keys = await invoke('get_agent_api_keys');
+      if (keys) {
+        if (keys.anthropic_api_key) document.getElementById('agent-key-anthropic').value = keys.anthropic_api_key;
+        if (keys.openai_api_key) document.getElementById('agent-key-openai').value = keys.openai_api_key;
+        if (keys.gemini_api_key) document.getElementById('agent-key-gemini').value = keys.gemini_api_key;
+        if (keys.local_endpoint) document.getElementById('agent-endpoint-local').value = keys.local_endpoint;
+        if (keys.default_model) document.getElementById('agent-default-model').value = keys.default_model;
+      }
+    } catch (err) {
+      console.error('Failed to load settings:', err);
     }
-  } else if (e.key === 'g' || e.key === 'G') {
-    document.getElementById('tab-btn-graph')?.click();
-  } else if (e.key === 'v' || e.key === 'V') {
-    document.getElementById('btn-action-verify')?.click();
-  } else if (e.key === 'a' || e.key === 'A') {
-    document.getElementById('btn-action-approve')?.click();
-  }
-});
+  });
 
-// Utilities
-function escapeHtml(text) {
-  if (!text) return '';
-  return String(text)
+  const closeModal = () => modal.classList.add('hidden');
+  btnClose?.addEventListener('click', closeModal);
+  btnCancel?.addEventListener('click', closeModal);
+  modal?.addEventListener('click', (e) => {
+    if (e.target === modal) closeModal();
+  });
+
+  btnSave?.addEventListener('click', async () => {
+    const keys = {
+      anthropic_api_key: document.getElementById('agent-key-anthropic')?.value.trim() || null,
+      openai_api_key: document.getElementById('agent-key-openai')?.value.trim() || null,
+      gemini_api_key: document.getElementById('agent-key-gemini')?.value.trim() || null,
+      local_endpoint: document.getElementById('agent-endpoint-local')?.value.trim() || null,
+      default_model: document.getElementById('agent-default-model')?.value || 'claude-3-5-sonnet',
+    };
+
+    try {
+      await invoke('save_agent_api_keys', { keys });
+      showToast('Settings & Agent API Keys saved successfully');
+      closeModal();
+    } catch (err) {
+      showToast(`Failed to save settings: ${err}`, 'error');
+    }
+  });
+}
+
+// ============================================================================
+// Tasks & Review Queue Pane
+// ============================================================================
+function renderQueueList() {
+  const list = document.getElementById('items-list');
+  if (!list) return;
+
+  const filtered = currentFilter === 'all'
+    ? currentItems
+    : currentItems.filter(i => (i.tags || []).includes(currentFilter) || i.domain_tag === currentFilter);
+
+  if (filtered.length === 0) {
+    list.innerHTML = '<div class="empty-state">No tasks matching active filter.</div>';
+    return;
+  }
+
+  list.innerHTML = filtered.map(item => `
+    <div class="queue-item ${selectedItemId === item.id ? 'selected' : ''}" onclick="window.selectItemInQueue('${item.id}')">
+      <div class="flex justify-between items-center mb-1">
+        <span class="text-[10px] font-mono text-zinc-500">${item.id.substring(item.id.length - 6).toUpperCase()}</span>
+        <span class="badge ${item.domain_tag === '#prod-bug' ? 'badge-emerald' : 'badge-amber'}">${item.domain_tag || '#prod-bug'}</span>
+      </div>
+      <div class="text-xs font-bold text-zinc-200 truncate">${escapeHtml(item.title)}</div>
+      <div class="text-[11px] text-zinc-400 truncate mt-0.5">${escapeHtml(item.description)}</div>
+    </div>
+  `).join('');
+}
+
+window.selectItemInQueue = async (itemId) => {
+  selectedItemId = itemId;
+  renderQueueList();
+
+  const emptyReview = document.getElementById('empty-review');
+  const activeReview = document.getElementById('active-review');
+
+  try {
+    const item = await invoke('get_operation', { id: itemId });
+    if (!item) return;
+
+    emptyReview?.classList.add('hidden');
+    activeReview?.classList.remove('hidden');
+
+    document.getElementById('review-id').textContent = item.id;
+    document.getElementById('review-title').textContent = item.title;
+    document.getElementById('review-desc').textContent = item.description;
+    document.getElementById('review-state-badge').textContent = item.state;
+    document.getElementById('review-domain-badge').textContent = item.domain_tag || '#prod-bug';
+
+    const promptBox = document.getElementById('attached-prompt-text');
+    if (promptBox) {
+      promptBox.textContent = item.prompt || 'No custom prompt attached.';
+    }
+
+    // Update stepper
+    const states = ['captured', 'sandboxed', 'verified', 'approved', 'promoted'];
+    const curIdx = states.indexOf((item.state || '').toLowerCase());
+    states.forEach((s, idx) => {
+      const node = document.getElementById(`step-${s}`);
+      if (node) {
+        node.classList.remove('completed', 'active');
+        if (idx < curIdx) node.classList.add('completed');
+        else if (idx === curIdx) node.classList.add('active');
+      }
+    });
+
+    // Wire review action buttons
+    document.getElementById('btn-action-verify').onclick = () => window.advanceTask(item.id, 'verified');
+    document.getElementById('btn-action-approve').onclick = () => window.advanceTask(item.id, 'approved');
+    document.getElementById('btn-action-reject').onclick = () => window.advanceTask(item.id, 'captured');
+  } catch (err) {
+    showToast(`Error loading item: ${err}`, 'error');
+  }
+};
+
+// ============================================================================
+// Core Ingestion & Operations
+// ============================================================================
+async function loadOperations() {
+  try {
+    const items = await invoke('list_operations');
+    if (items) {
+      currentItems = items;
+      renderBoard();
+      renderQueueList();
+    }
+  } catch (err) {
+    console.error('Failed to load operations:', err);
+  }
+}
+
+window.openNewTaskModal = (relation) => {
+  const modal = document.getElementById('modal-ingest');
+  if (modal) modal.classList.remove('hidden');
+};
+
+function initNewTaskModal() {
+  const modal = document.getElementById('modal-ingest');
+  const btnOpen = document.getElementById('btn-new-item');
+  const btnClose = document.getElementById('btn-close-ingest');
+  const btnCancel = document.getElementById('btn-cancel-ingest');
+  const btnSubmit = document.getElementById('btn-submit-ingest');
+
+  btnOpen?.addEventListener('click', () => modal?.classList.remove('hidden'));
+  const closeModal = () => modal?.classList.add('hidden');
+  btnClose?.addEventListener('click', closeModal);
+  btnCancel?.addEventListener('click', closeModal);
+  modal?.addEventListener('click', (e) => {
+    if (e.target === modal) closeModal();
+  });
+
+  btnSubmit?.addEventListener('click', async () => {
+    const title = document.getElementById('new-item-title')?.value.trim();
+    const desc = document.getElementById('new-item-desc')?.value.trim();
+    const domainTag = document.getElementById('new-item-domain')?.value || '#prod-bug';
+    const requester = document.getElementById('new-item-requester')?.value.trim() || 'engineer';
+
+    if (!title) return;
+
+    try {
+      await invoke('ingest_operation', {
+        title,
+        description: desc || null,
+        requester,
+        domainTag,
+        payload: null,
+        prompt: desc || null,
+        systemGoal: null,
+        tags: [domainTag],
+      });
+      showToast('New task created successfully');
+      closeModal();
+      await loadOperations();
+    } catch (err) {
+      showToast(`Creation failed: ${err}`, 'error');
+    }
+  });
+}
+
+// Toast helper
+function showToast(msg, type = 'info') {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+  const toast = document.createElement('div');
+  toast.className = `toast ${type === 'error' ? 'border-rose-500/50 text-rose-300' : 'border-zinc-700'}`;
+  toast.textContent = msg;
+  container.appendChild(toast);
+  setTimeout(() => { toast.remove(); }, 3500);
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
+    .replace(/"/g, '&quot;');
 }
 
-function formatDate(isoStr) {
-  if (!isoStr) return '';
-  const d = new Date(isoStr);
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+// Auto-run pipeline demonstration
+function initAutoPipeline() {
+  const btn = document.getElementById('btn-auto-pipeline');
+  btn?.addEventListener('click', async () => {
+    if (isAutoPipelineRunning) return;
+    isAutoPipelineRunning = true;
+    btn.disabled = true;
+    showToast('Starting automated pipeline execution across board units...');
+
+    for (const item of currentItems) {
+      if (item.state === 'Captured') {
+        await window.advanceTask(item.id, 'verified');
+        await new Promise(r => setTimeout(r, 600));
+      }
+    }
+
+    showToast('Auto-pipeline run completed');
+    isAutoPipelineRunning = false;
+    btn.disabled = false;
+  });
 }
 
-function getStateColor(state) {
-  if (!state) return 'var(--text-muted)';
-  const s = state.toLowerCase();
-  if (s === 'promoted' || s === 'contract_verified' || s === 'contractverified') return 'var(--accent-emerald)';
-  if (s === 'human_approved' || s === 'humanapproved') return 'var(--accent-gold)';
-  if (s === 'sandboxed') return 'var(--accent-blue)';
-  if (s === 'rejected') return 'var(--accent-rose)';
-  return 'var(--text-secondary)';
+// Application Initialization
+async function boot() {
+  initNavigation();
+  initProjectSetupWizard();
+  initSettingsModal();
+  initNewTaskModal();
+  initAutoPipeline();
+
+  // Filter chips
+  document.querySelectorAll('.filter-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      boardFilter = chip.getAttribute('data-filter') || 'all';
+      renderBoard();
+    });
+  });
+
+  // Real-time board search query filter
+  const searchInput = document.getElementById('board-search-input');
+  searchInput?.addEventListener('input', (e) => {
+    boardSearchQuery = e.target.value;
+    renderBoard();
+  });
+
+  await loadOperations();
 }
 
-// Window resize handler for canvas
-window.addEventListener('resize', () => {
-  if (!document.getElementById('view-graph').classList.contains('hidden')) {
-    renderEsgCanvas();
-  }
-});
-
-// Initialization
-document.addEventListener('DOMContentLoaded', () => {
-  initTheme();
-  fetchQueue();
-});
+if (document.readyState === 'loading') {
+  window.addEventListener('DOMContentLoaded', boot);
+} else {
+  boot();
+}

@@ -1,0 +1,29 @@
+{
+  "okf_version": "0.2",
+  "generated_at": "2026-09-08T06:02:00Z",
+  "workspace_crates_checked": 16,
+  "command": "cargo clippy --workspace --all-targets -- -D warnings",
+  "exit_code": 0,
+  "total_diagnostics": 0,
+  "warnings": 0,
+  "errors": 0,
+  "status": "CLEAN",
+  "crates": [
+    "exodus-core",
+    "exodus-parser",
+    "exodus-graph",
+    "exodus-planner",
+    "exodus-agent",
+    "exodus-transform",
+    "exodus-fallback",
+    "exodus-verifier",
+    "exodus-case",
+    "exodus-worktree",
+    "exodus-eval",
+    "exodus-cli",
+    "exodus-cost",
+    "exodus-plugin",
+    "exodus-desktop",
+    "exodus"
+  ]
+}

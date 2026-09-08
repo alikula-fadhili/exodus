@@ -45,3 +45,12 @@ Project Exodus is a graph-guided, agent-assisted legacy code migration engine de
 * [Security Boundaries](security-boundaries.md) — Code execution sandboxing, secrets isolation, and privacy.
 * [Known Limitations](known-limitations.md) — Explicitly documented unsupported constructs and migration bottlenecks.
 * [Glossary](glossary.md) — Standard taxonomy and domain terms.
+
+### 6. Comprehensive Review & Certification
+* [Review Plan](../docs/reviews/REVIEW_PLAN.md) — Master 6-phase review plan and exit criteria.
+* [Phase 1: Pre-Review Preparation](../docs/reviews/phase1-prep/checklist.md) — Baseline metrics and inventory.
+* [Phase 2: Code Quality Findings](../docs/reviews/phase2-quality/findings.md) — Static analysis & clippy report.
+* [Phase 3: Architectural Decisions](../docs/reviews/phase3-architecture/decisions.md) — ADRs 001–005.
+* [Phase 4: Functional Verification](../docs/reviews/phase4-functional/integration_findings.md) — Integration test results.
+* [Phase 5: Production Readiness Decision](../docs/reviews/phase5-readiness/go_no_go.md) — Go/No-Go certification.
+* [Phase 6: Consolidated Final Report](../docs/reviews/phase6-consolidation/consolidated_report.md) — Final M6 certification and [Release Manifest](../docs/reviews/phase6-consolidation/release_manifest.md).

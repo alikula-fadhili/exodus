@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="grayscale-gold">
+<html lang="en" data-theme="grayscale-gold" class="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Project Exodus — Enterprise Mission Control</title>
-  <!-- TailwindCSS Engine with Grayscale Gold Extension -->
+  <!-- TailwindCSS Engine with Platinum & Zinc Dark Palette -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -12,10 +12,17 @@
       theme: {
         extend: {
           colors: {
-            gold: {
-              DEFAULT: '#d4af37',
-              light: '#f6d87c',
-              dark: '#aa8c2c',
+            platinum: {
+              DEFAULT: '#e2e8f0',
+              light: '#ffffff',
+              dark: '#94a3b8',
+            },
+            zinc: {
+              950: '#09090b',
+              900: '#141417',
+              850: '#18181c',
+              800: '#27272a',
+              700: '#3f3f46',
             }
           }
         }
@@ -27,13 +34,13 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
-<body>
+<body class="bg-zinc-950 text-zinc-100 font-sans antialiased select-none">
   <div class="app-shell">
     <!-- Top Navigation Header -->
     <header class="top-nav">
       <div class="brand">
         <div class="brand-icon">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
             <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
             <polyline points="2 17 12 22 22 17"></polyline>
             <polyline points="2 12 12 17 22 12"></polyline>
@@ -41,38 +48,39 @@
         </div>
         <div class="brand-text">
           <span class="brand-title">EXODUS</span>
-          <span class="brand-subtitle">Autonomous Code & Systems Workspace &bull; Native Desktop</span>
+          <span class="brand-subtitle">Autonomous Code & Systems Workspace</span>
         </div>
       </div>
 
-      <!-- Navigation Tabs -->
+      <!-- Navigation Tabs (Central Workspaces) -->
       <nav class="nav-tabs">
         <button class="nav-tab active" id="tab-btn-board">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
           Board
         </button>
+        <button class="nav-tab" id="tab-btn-structure">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
+          Project Structure
+        </button>
         <button class="nav-tab" id="tab-btn-queue">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
           Tasks & Review
         </button>
         <button class="nav-tab" id="tab-btn-graph">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"></circle><circle cx="18" cy="18" r="3"></circle><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><line x1="8.5" y1="7.5" x2="15.5" y2="16.5"></line><line x1="8.5" y1="16.5" x2="15.5" y2="7.5"></line></svg>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"></circle><circle cx="18" cy="18" r="3"></circle><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><line x1="8.5" y1="7.5" x2="15.5" y2="16.5"></line><line x1="8.5" y1="16.5" x2="15.5" y2="7.5"></line></svg>
           Change Graph
         </button>
       </nav>
 
-      <!-- Action Controls, Theme Selector & Status -->
+      <!-- Action Controls, Project Selector & Settings -->
       <div class="header-status">
-        <!-- Theme Switcher -->
-        <div class="theme-select-wrapper" title="Switch Theme">
-          <select id="theme-selector" class="form-select" style="padding: 4px 26px 4px 10px; font-size: 11px;">
-            <option value="grayscale-gold">Grayscale Gold</option>
-            <option value="minimal-light">Minimal Light</option>
-            <option value="pure-midnight">Pure Midnight</option>
-          </select>
-        </div>
+        <!-- Open / New Project Button -->
+        <button id="btn-open-project" class="btn btn-secondary" title="Open or scan a local repository">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+          <span>Open Project</span>
+        </button>
 
-        <button id="btn-auto-pipeline" class="btn btn-secondary" title="Automatically simulate pipeline movement across board">
+        <button id="btn-auto-pipeline" class="btn btn-secondary" title="Automatically step through pipeline verification">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
           <span>Auto-Run Pipeline</span>
         </button>
@@ -80,26 +88,32 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
           New Task
         </button>
-        <button id="btn-sdlc-settings" class="btn btn-secondary">
+        <button id="btn-sdlc-settings" class="btn btn-secondary" title="Settings & API Keys">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
           Settings
         </button>
         <div class="status-pill online">
           <span class="pulse-dot"></span>
-          <span>SYSTEM READY</span>
+          <span id="active-repo-badge">MONOGLOT-PYTHON</span>
         </div>
       </div>
     </header>
 
-    <!-- Linear / Notion Style Board View (Default) -->
+    <!-- 1. Linear / Notion Style Board View (Default) -->
     <div id="view-board" class="main-view">
       <div class="board-toolbar">
-        <div class="board-toolbar-left">
+        <div class="board-toolbar-left flex items-center gap-3">
           <div class="board-filters">
             <button class="filter-chip active" data-filter="all">All Issues</button>
             <button class="filter-chip" data-filter="#prod-bug">Engineering</button>
             <button class="filter-chip" data-filter="#crm-request">Commercial</button>
             <button class="filter-chip" data-filter="#survey-mapping">User Feedback</button>
+          </div>
+          <div class="relative flex items-center">
+            <input type="text" id="board-search-input" class="bg-zinc-900 border border-zinc-700/80 rounded-md text-xs text-zinc-200 pl-7 pr-2.5 py-1 w-44 focus:w-60 focus:border-zinc-400 transition-all outline-none" placeholder="Search tasks...">
+            <svg class="w-3.5 h-3.5 text-zinc-500 absolute left-2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+            </svg>
           </div>
         </div>
         <div class="board-toolbar-right">
@@ -108,7 +122,7 @@
             <span>Configure Board</span>
           </button>
           <div class="board-hint">
-            <span>Tip: Click empty space to create a task &bull; Drag & drop to advance</span>
+            <span>Drag cards between columns or use one-click action buttons</span>
           </div>
         </div>
       </div>
@@ -119,7 +133,40 @@
       </div>
     </div>
 
-    <!-- Tasks & Reviews Split View -->
+    <!-- 2. Human-Structured Project Work Organizer View -->
+    <div id="view-structure" class="main-view hidden p-6 overflow-y-auto">
+      <div class="max-w-6xl mx-auto space-y-6">
+        <!-- Project Summary Banner -->
+        <div class="p-6 rounded-xl border border-zinc-800 bg-zinc-900/60 backdrop-blur flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <div class="flex items-center gap-3">
+              <h1 class="text-xl font-bold tracking-tight text-zinc-100" id="struct-project-name">Loading Project...</h1>
+              <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" id="struct-status-badge">Active</span>
+            </div>
+            <p class="text-xs text-zinc-400 mt-1 font-mono" id="struct-project-path">/path/to/project</p>
+          </div>
+          <div class="flex items-center gap-6 w-full md:w-auto">
+            <div class="text-right">
+              <div class="text-xs text-zinc-400">Migration Progress</div>
+              <div class="text-xl font-bold text-platinum" id="struct-progress-label">0%</div>
+            </div>
+            <div class="w-48 h-2.5 bg-zinc-800 rounded-full overflow-hidden border border-zinc-700/50">
+              <div class="h-full bg-gradient-to-r from-zinc-200 to-white transition-all duration-500" id="struct-progress-bar" style="width: 0%;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Human Structure Hierarchy: Domains -> Waves -> Units -->
+        <div class="space-y-4" id="struct-domains-container">
+          <!-- Populated dynamically via desktop.js -->
+          <div class="p-8 text-center text-zinc-500 border border-zinc-800/80 rounded-xl bg-zinc-900/30">
+            Loading project work structure...
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. Tasks & Reviews Split View -->
     <div id="view-queue" class="main-view hidden">
       <!-- Domain Metrics Overview Grid -->
       <section class="kpi-grid">
@@ -217,14 +264,14 @@
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="6" cy="6" r="3"></circle><circle cx="18" cy="18" r="3"></circle><line x1="8.5" y1="7.5" x2="15.5" y2="16.5"></line>
                   </svg>
-                  View Graph (g)
+                  View in Graph
                 </button>
                 <button id="btn-action-verify" class="btn btn-secondary">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
                     <polyline points="22 4 12 14.01 9 11.01"></polyline>
                   </svg>
-                  Run Tests (v)
+                  Run Tests
                 </button>
                 <button id="btn-action-reject" class="btn btn-danger">
                   Reject
@@ -233,7 +280,7 @@
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <polyline points="20 6 9 17 4 12"></polyline>
                   </svg>
-                  Approve & Apply (a)
+                  Approve & Apply
                 </button>
               </div>
             </div>
@@ -242,17 +289,17 @@
             <div class="stepper-track">
               <div class="step-node" id="step-captured">
                 <div class="step-circle">1</div>
-                <span class="step-label">Triggered</span>
+                <span class="step-label">Captured</span>
               </div>
               <div class="step-line" id="line-1"></div>
               <div class="step-node" id="step-sandboxed">
                 <div class="step-circle">2</div>
-                <span class="step-label">In Sandbox</span>
+                <span class="step-label">Sandboxed</span>
               </div>
               <div class="step-line" id="line-2"></div>
               <div class="step-node" id="step-verified">
                 <div class="step-circle">3</div>
-                <span class="step-label">Tests Passing</span>
+                <span class="step-label">Verified</span>
               </div>
               <div class="step-line" id="line-3"></div>
               <div class="step-node" id="step-approved">
@@ -262,7 +309,7 @@
               <div class="step-line" id="line-4"></div>
               <div class="step-node" id="step-promoted">
                 <div class="step-circle">5</div>
-                <span class="step-label">Applied</span>
+                <span class="step-label">Promoted</span>
               </div>
             </div>
 
@@ -277,40 +324,6 @@
               </div>
               <div class="prompt-content-box" id="attached-prompt-text">
                 No custom prompt attached. Click 'Edit Prompt' to attach a directive.
-              </div>
-            </div>
-
-            <!-- Unit Achievement vs. Whole System Goal Diagnostic Breakdown -->
-            <div class="prompt-breakdown-card" id="prompt-breakdown-card">
-              <div class="breakdown-header">
-                <div class="breakdown-title-group">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
-                  <span class="breakdown-title">Unit Achievement vs. Whole System Goal</span>
-                </div>
-                <span id="breakdown-status-badge" class="badge badge-emerald">Aligned</span>
-              </div>
-
-              <!-- Goal Hierarchy Grid -->
-              <div class="goal-hierarchy-grid">
-                <div class="goal-box system-goal">
-                  <span class="goal-box-label">Macro System Goal</span>
-                  <div class="goal-box-text" id="breakdown-system-goal">Modernize repository and eliminate behavioral regressions through atomic unit gates</div>
-                </div>
-                <div class="goal-box unit-goal">
-                  <span class="goal-box-label">Atomic Unit Goal</span>
-                  <div class="goal-box-text" id="breakdown-unit-goal">Unit task goal</div>
-                </div>
-              </div>
-
-              <!-- Stage Diagnostics & Why Prompt Failed -->
-              <div class="breakdown-stage-diagnostics" id="breakdown-stage-diagnostics">
-                <!-- Dynamically populated based on test results -->
-              </div>
-
-              <!-- System Attachment Indicator -->
-              <div class="system-attachment-bar">
-                <span>System Graph Integration:</span>
-                <strong id="breakdown-attachment-status" class="text-emerald-400">Attached to Target Pipeline</strong>
               </div>
             </div>
 
@@ -334,18 +347,18 @@
       </main>
     </div>
 
-    <!-- Change Graph View (Interactive Visualizer) -->
+    <!-- 4. Change Graph View (Interactive Dynamic Visualizer) -->
     <div id="view-graph" class="main-view hidden">
       <div class="graph-layout">
         <div class="graph-header">
           <div>
-            <h2>Change Lineage Graph</h2>
-            <p>Interactive trace connecting triggers and prompts directly to codebase file changes and automated test runs.</p>
+            <h2>Change Lineage Graph (ESG Semantic Graph)</h2>
+            <p>Authentic AST symbols, classes, functions, and containment edges parsed from active repository source code.</p>
           </div>
           <div class="graph-stats">
             <div class="stat-pill"><strong id="graph-node-count">0</strong> Nodes</div>
             <div class="stat-pill"><strong id="graph-edge-count">0</strong> Links</div>
-            <div class="stat-pill highlight"><strong id="graph-status-count">All Passed</strong></div>
+            <div class="stat-pill highlight"><strong id="graph-status-count">Grounded</strong></div>
           </div>
         </div>
 
@@ -354,13 +367,13 @@
           <div class="canvas-container">
             <canvas id="esg-canvas" width="1000" height="600"></canvas>
             <div class="canvas-legend">
-              <div class="legend-item"><span class="legend-dot status-trigger"></span> Trigger / Event</div>
-              <div class="legend-item"><span class="legend-dot status-prompt"></span> Prompt</div>
-              <div class="legend-item"><span class="legend-dot status-file"></span> Code Change</div>
-              <div class="legend-item"><span class="legend-dot status-test"></span> Automated Test</div>
+              <div class="legend-item"><span class="legend-dot status-trigger"></span> Module</div>
+              <div class="legend-item"><span class="legend-dot status-prompt"></span> Class</div>
+              <div class="legend-item"><span class="legend-dot status-file"></span> Function</div>
+              <div class="legend-item"><span class="legend-dot status-test"></span> Contract</div>
               <div class="legend-item"><span class="legend-dot status-target"></span> Target</div>
             </div>
-            <div class="canvas-hint">Click any node to inspect prompts, code diffs, or test results</div>
+            <div class="canvas-hint">Click any node to inspect extracted signatures, AST details, or code snippets</div>
           </div>
 
           <!-- Interactive Node Inspector Drawer -->
@@ -368,7 +381,7 @@
             <div class="drawer-header">
               <div class="drawer-title-group">
                 <span class="badge" id="drawer-node-kind">Node</span>
-                <span class="badge badge-emerald" id="drawer-node-status">Status</span>
+                <span class="badge badge-emerald" id="drawer-node-status">Verified</span>
               </div>
               <h3 id="drawer-node-label">Select a node</h3>
               <div class="drawer-subtitle" id="drawer-node-sub">Click a node on the graph canvas</div>
@@ -379,7 +392,7 @@
                 <div class="drawer-text" id="drawer-node-detail">Select a node to inspect its prompt, file modifications, or automated test output.</div>
               </div>
               <div class="drawer-section hidden" id="drawer-diff-section">
-                <label class="drawer-label">CODE DIFF PREVIEW</label>
+                <label class="drawer-label">CODE SNIPPET PREVIEW</label>
                 <div class="diff-box" id="drawer-diff-content"></div>
               </div>
               <div class="drawer-section hidden" id="drawer-meta-section">
@@ -394,7 +407,172 @@
 
     <!-- Modals -->
 
-    <!-- 1. Board Configuration Modal -->
+    <!-- Modal 1: Open / New Project Discovery & Setup Wizard -->
+    <div id="modal-project-setup" class="modal-overlay hidden">
+      <div class="modal-card" style="width: 680px;">
+        <div class="modal-header">
+          <div class="flex items-center gap-2">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+            <h3 class="text-base font-bold text-zinc-100">Open & Configure Local Repository</h3>
+          </div>
+          <button id="btn-close-project-setup" class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body space-y-4">
+          <div class="form-group">
+            <label class="text-xs font-semibold text-zinc-300">Local Repository Path</label>
+            <div class="flex gap-2">
+              <input type="text" id="setup-repo-path" class="form-input flex-1" placeholder="/absolute/path/to/repo or select folder..." value="demo_projects/monoglot_python_service">
+              <button type="button" class="btn btn-secondary px-3 flex items-center gap-1.5" id="btn-browse-folder" title="Browse local directories">
+                <svg class="w-4 h-4 text-zinc-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path>
+                </svg>
+                <span>Browse...</span>
+              </button>
+              <button type="button" class="btn btn-primary px-4 flex items-center gap-1.5" id="btn-run-scan">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                </svg>
+                <span>Scan Repo</span>
+              </button>
+            </div>
+            <input type="file" id="html-folder-picker" webkitdirectory directory class="hidden">
+            <div class="flex gap-2 mt-1.5">
+              <span class="text-xs text-zinc-500">Quick Presets:</span>
+              <button class="text-xs text-platinum underline hover:text-white" onclick="document.getElementById('setup-repo-path').value='demo_projects/monoglot_python_service'; document.getElementById('btn-run-scan').click();">Demo Python Service</button>
+              <button class="text-xs text-platinum underline hover:text-white" onclick="document.getElementById('setup-repo-path').value='demo_projects/turborepo_microservices'; document.getElementById('btn-run-scan').click();">Turborepo Microservices</button>
+            </div>
+            <!-- Dynamic scan error banner -->
+            <div id="setup-scan-error" class="hidden mt-2 p-2.5 rounded-lg border border-red-500/30 bg-red-500/10 text-red-300 text-xs"></div>
+          </div>
+
+          <!-- Discovered Config Card (Populated dynamically) -->
+          <div id="setup-discovery-card" class="p-4 rounded-lg border border-zinc-800 bg-zinc-900/50 hidden space-y-3">
+            <div class="flex justify-between items-center border-b border-zinc-800 pb-2">
+              <span class="text-xs font-bold text-zinc-200" id="discover-name">Project Name</span>
+              <span class="px-2 py-0.5 rounded text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" id="discover-lang">Python</span>
+            </div>
+            <div class="grid grid-cols-3 gap-3 text-xs text-zinc-300">
+              <div>
+                <span class="text-zinc-500 block">Manifest Files</span>
+                <strong id="discover-manifests" class="text-zinc-200">-</strong>
+              </div>
+              <div>
+                <span class="text-zinc-500 block">Total Files</span>
+                <strong id="discover-files" class="text-zinc-200">0</strong>
+              </div>
+              <div>
+                <span class="text-zinc-500 block">Approx Lines</span>
+                <strong id="discover-lines" class="text-zinc-200">0</strong>
+              </div>
+            </div>
+            <div class="pt-2 border-t border-zinc-800/80">
+              <label class="text-xs font-semibold text-zinc-300 block mb-1">Target Modern Architecture</label>
+              <select id="setup-target-lang" class="form-select w-full">
+                <option value="Rust 2021">Rust 2021 (Memory Safe, Strict Parity, Zero-Cost)</option>
+                <option value="Go 1.22">Go 1.22 (High-Concurrency Microservices)</option>
+                <option value="TypeScript">TypeScript (Node.js / Web Platform)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Process-by-Process Progress Pipeline -->
+          <div id="setup-progress-pipeline" class="space-y-2 hidden">
+            <span class="text-xs font-semibold text-zinc-300 block">Automated Setup Pipeline</span>
+            <div class="space-y-1.5 text-xs">
+              <div class="flex items-center gap-2 p-2 rounded bg-zinc-900 border border-zinc-800" id="pipe-step-1">
+                <span class="w-4 h-4 rounded-full border border-zinc-600 flex items-center justify-center text-[10px]">1</span>
+                <span>Scan configuration & manifest manifests</span>
+              </div>
+              <div class="flex items-center gap-2 p-2 rounded bg-zinc-900 border border-zinc-800" id="pipe-step-2">
+                <span class="w-4 h-4 rounded-full border border-zinc-600 flex items-center justify-center text-[10px]">2</span>
+                <span>Tree-sitter AST symbol & contract extraction</span>
+              </div>
+              <div class="flex items-center gap-2 p-2 rounded bg-zinc-900 border border-zinc-800" id="pipe-step-3">
+                <span class="w-4 h-4 rounded-full border border-zinc-600 flex items-center justify-center text-[10px]">3</span>
+                <span>ESG Semantic Graph construction & cycle analysis</span>
+              </div>
+              <div class="flex items-center gap-2 p-2 rounded bg-zinc-900 border border-zinc-800" id="pipe-step-4">
+                <span class="w-4 h-4 rounded-full border border-zinc-600 flex items-center justify-center text-[10px]">4</span>
+                <span>Topological migration wave generation</span>
+              </div>
+              <div class="flex items-center gap-2 p-2 rounded bg-zinc-900 border border-zinc-800" id="pipe-step-5">
+                <span class="w-4 h-4 rounded-full border border-zinc-600 flex items-center justify-center text-[10px]">5</span>
+                <span>Hydrating Mission Control Board & Structure</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="btn-cancel-project-setup">Cancel</button>
+          <button class="btn btn-primary" id="btn-start-project-setup" disabled>Initialize Project</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal 2: Settings & Agent API Keys Modal -->
+    <div id="modal-sdlc-settings" class="modal-overlay hidden">
+      <div class="modal-card" style="width: 580px;">
+        <div class="modal-header">
+          <div class="flex items-center gap-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            <h3 class="text-base font-bold text-zinc-100">Settings & Agent Model Configuration</h3>
+          </div>
+          <button id="btn-close-sdlc" class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body space-y-4 max-h-[70vh] overflow-y-auto">
+          <!-- Agent API Keys Section -->
+          <div class="p-3.5 rounded-lg border border-zinc-800 bg-zinc-900/60 space-y-3">
+            <span class="text-xs font-bold text-platinum block tracking-wide uppercase">Agent LLM Providers & API Keys</span>
+            <div class="form-group">
+              <label class="text-xs text-zinc-300">Anthropic API Key</label>
+              <input type="password" id="agent-key-anthropic" class="form-input font-mono text-xs" placeholder="sk-ant-api03-...">
+            </div>
+            <div class="form-group">
+              <label class="text-xs text-zinc-300">OpenAI API Key</label>
+              <input type="password" id="agent-key-openai" class="form-input font-mono text-xs" placeholder="sk-proj-...">
+            </div>
+            <div class="form-group">
+              <label class="text-xs text-zinc-300">Gemini API Key</label>
+              <input type="password" id="agent-key-gemini" class="form-input font-mono text-xs" placeholder="AIzaSy...">
+            </div>
+            <div class="form-group">
+              <label class="text-xs text-zinc-300">Local Endpoint (Ollama / vLLM)</label>
+              <input type="text" id="agent-endpoint-local" class="form-input font-mono text-xs" placeholder="http://localhost:11434/v1">
+            </div>
+            <div class="form-group">
+              <label class="text-xs text-zinc-300">Default Model</label>
+              <select id="agent-default-model" class="form-select text-xs">
+                <option value="claude-3-5-sonnet">Claude 3.5 Sonnet (Recommended)</option>
+                <option value="gpt-4o">GPT-4o</option>
+                <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                <option value="local-deepseek">Local DeepSeek Coder</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Git & SDLC Integration Section -->
+          <div class="p-3.5 rounded-lg border border-zinc-800 bg-zinc-900/40 space-y-3">
+            <span class="text-xs font-bold text-platinum block tracking-wide uppercase">CI/CD & Worktree Automation</span>
+            <div class="grid grid-cols-2 gap-3">
+              <div class="form-group">
+                <label class="text-xs text-zinc-300">Provider</label>
+                <input type="text" id="sdlc-provider" class="form-input text-xs" value="GitHub Actions" readonly>
+              </div>
+              <div class="form-group">
+                <label class="text-xs text-zinc-300">Default Branch</label>
+                <input type="text" id="sdlc-default-branch" class="form-input text-xs" value="master" readonly>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="btn-cancel-sdlc">Cancel</button>
+          <button class="btn btn-primary" id="btn-save-settings">Save Settings</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal 3: Board Configuration Modal -->
     <div id="modal-board-config" class="modal-overlay hidden">
       <div class="modal-card" style="width: 580px;">
         <div class="modal-header">
@@ -402,7 +580,7 @@
           <button id="btn-close-board-config" class="modal-close">&times;</button>
         </div>
         <div class="modal-body">
-          <p class="text-xs text-slate-400 mb-3">Reorder stages, customize display labels, map to lifecycle state relations, and set WIP limits.</p>
+          <p class="text-xs text-zinc-400 mb-3">Reorder stages, customize display labels, map to lifecycle state relations, and set WIP limits.</p>
           <div class="stage-config-list" id="stage-config-list">
             <!-- Populated dynamically by desktop.js -->
           </div>
@@ -414,7 +592,7 @@
       </div>
     </div>
 
-    <!-- 2. Tag & Change Graph Mapping Modal -->
+    <!-- Modal 4: Tag & Change Graph Mapping Modal -->
     <div id="modal-tag-mapping" class="modal-overlay hidden">
       <div class="modal-card">
         <div class="modal-header">
@@ -429,17 +607,10 @@
           <div class="form-group">
             <label>Mapped Codebase Symbols & Files in Change Graph</label>
             <div class="flex gap-2">
-              <input type="text" id="modal-tag-symbol-input" class="form-input" placeholder="e.g. crates/auth/token.rs or verify_token">
+              <input type="text" id="modal-tag-symbol-input" class="form-input" placeholder="e.g. models.py or Order">
               <button class="btn btn-secondary" id="btn-add-mapped-symbol">Add</button>
             </div>
             <div class="mapped-symbols-list" id="modal-mapped-symbols-list"></div>
-          </div>
-          <div class="mt-4 pt-3 border-t border-slate-700/50 flex justify-between items-center">
-            <span class="text-xs text-slate-400">Jump directly to Change Graph:</span>
-            <button class="btn btn-secondary text-cyan-400" id="btn-jump-to-graph">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-              <span>View in Change Graph</span>
-            </button>
           </div>
         </div>
         <div class="modal-footer">
@@ -450,68 +621,7 @@
       </div>
     </div>
 
-    <!-- 3. Edit Prompt Modal -->
-    <div id="modal-edit-prompt" class="modal-overlay hidden">
-      <div class="modal-card">
-        <div class="modal-header">
-          <h3>Edit Attached Developer Prompt</h3>
-          <button id="btn-close-prompt-modal" class="modal-close">&times;</button>
-        </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label>Macro System Goal (Overarching Objective)</label>
-            <input type="text" id="edit-prompt-system-goal" class="form-input" placeholder="e.g. Modernize auth to zero-regression tokens">
-          </div>
-          <div class="form-group">
-            <label>Atomic Unit Prompt (Focused Micro Directive)</label>
-            <textarea id="edit-prompt-unit-text" class="form-textarea" rows="4" placeholder="Specific goal for the agent to achieve in this unit"></textarea>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-secondary" id="btn-cancel-prompt-modal">Cancel</button>
-          <button class="btn btn-primary" id="btn-save-prompt-modal">Save & Dispatch Unit</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 4. SDLC Integration Modal -->
-    <div id="modal-sdlc" class="modal-overlay hidden">
-      <div class="modal-card">
-        <div class="modal-header">
-          <h3>SDLC CI/CD Integration Settings</h3>
-          <button id="btn-close-sdlc" class="modal-close">&times;</button>
-        </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label>Remote Git Repository URL</label>
-            <input type="text" id="sdlc-repo-url" class="form-input" readonly>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Provider</label>
-              <input type="text" id="sdlc-provider" class="form-input" readonly>
-            </div>
-            <div class="form-group">
-              <label>Default Target Branch</label>
-              <input type="text" id="sdlc-default-branch" class="form-input" readonly>
-            </div>
-          </div>
-          <div class="form-group">
-            <label>Pipeline Plugin Type</label>
-            <input type="text" id="sdlc-ci-type" class="form-input" readonly>
-          </div>
-          <div class="form-group">
-            <label>Auto-Generated Workflow Scaffold</label>
-            <pre id="sdlc-scaffold-preview" class="code-preview"></pre>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-secondary" id="btn-cancel-sdlc">Close</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 5. Ingestion Modal -->
+    <!-- Modal 5: New Task Ingestion Modal -->
     <div id="modal-ingest" class="modal-overlay hidden">
       <div class="modal-card">
         <div class="modal-header">
@@ -529,7 +639,7 @@
           </div>
           <div class="form-group">
             <label>Task Title</label>
-            <input type="text" id="new-item-title" class="form-input" placeholder="e.g. Handle token timeout in AuthHandler::verify_token">
+            <input type="text" id="new-item-title" class="form-input" placeholder="e.g. Migrate Order class state management to Rust">
           </div>
           <div class="form-group">
             <label>Attached Developer Prompt / Goal</label>
@@ -543,6 +653,30 @@
         <div class="modal-footer">
           <button class="btn btn-secondary" id="btn-cancel-ingest">Cancel</button>
           <button class="btn btn-primary" id="btn-submit-ingest">Create Task</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal 6: Edit Prompt Modal -->
+    <div id="modal-prompt-edit" class="modal-overlay hidden">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>Edit Attached Prompt</h3>
+          <button id="btn-close-prompt-modal" class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>Prompt Directive</label>
+            <textarea id="edit-prompt-text" class="form-textarea" rows="5" placeholder="Specify unit transformation constraints..."></textarea>
+          </div>
+          <div class="form-group">
+            <label>System Goal Alignment</label>
+            <input type="text" id="edit-prompt-goal" class="form-input" value="Modernize repository and eliminate behavioral regressions through atomic unit gates">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="btn-cancel-prompt-modal">Cancel</button>
+          <button class="btn btn-primary" id="btn-save-prompt-modal">Save Prompt</button>
         </div>
       </div>
     </div>
